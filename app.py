@@ -106,7 +106,13 @@ with tab2:
     with col_d:
         report_date = st.date_input("ข้อมูล ณ วันที่", datetime.now())
         
-    other_act = st.number_input("กิจกรรมส่งเสริมสุขภาพจิตอื่นๆ (จำนวน/ครั้ง)", min_value=0, step=1)
+    # อัปเดต: แยกเป็น 2 ช่อง สำหรับพิมพ์ระบุกิจกรรม และ จำนวนครั้ง
+    col_act1, col_act2 = st.columns([3, 1])
+    with col_act1:
+        other_act_name = st.text_input("กิจกรรมส่งเสริมสุขภาพจิตอื่นๆ (ระบุชื่อกิจกรรม)", placeholder="เช่น จัดบอร์ดความรู้, เสียงตามสาย...")
+    with col_act2:
+        other_act_count = st.number_input("จำนวน (ครั้ง)", min_value=0, step=1)
+        
     problems = st.text_area("4. ปัญหาและอุปสรรคที่พบ (ถ้ามี)", placeholder="พิมพ์ปัญหาหรืออุปสรรคที่นี่...")
 
     # 2. คำนวณสรุปยอด
@@ -125,7 +131,7 @@ with tab2:
 
     if not df.empty:
         st.markdown("---")
-        st.subheader("📊 หน้าตาของรายงานที่จะถูกสร้าง")
+        st.subheader("📊 หน้าตาของตารางรายงานที่จะถูกสร้าง")
         summary_data = {
             "รายการ (ตาม สจ.21)": [
                 "1. คัดกรองผู้ต้องขังเข้าใหม่", " - พบความผิดปกติ (เข้าใหม่)", " - ได้รับการดูแลรักษา (เข้าใหม่)",
@@ -190,10 +196,14 @@ with tab2:
                 pdf.cell(30, 8, txt=f"ชาย: {m} ราย", border=0)
                 pdf.cell(30, 8, txt=f"หญิง: {f} ราย", border=0, ln=True)
 
-            # ส่วนท้าย (ข้อมูลเพิ่มเติมที่ผู้ใช้ขอ)
+            # ส่วนท้าย (ข้อมูลเพิ่มเติม)
             pdf.ln(5)
             pdf.set_font("Sarabun", size=15)
-            pdf.cell(0, 10, txt=f"กิจกรรมส่งเสริมสุขภาพจิตอื่นๆ: {other_act} ครั้ง", ln=True)
+            
+            # อัปเดต: นำชื่อกิจกรรมและจำนวนครั้งมาแสดง
+            act_text = other_act_name if other_act_name.strip() else "- ไม่ได้ระบุ -"
+            pdf.cell(0, 10, txt=f"กิจกรรมส่งเสริมสุขภาพจิตอื่นๆ (ระบุ): {act_text}    จำนวน {other_act_count} ครั้ง", ln=True)
+            
             pdf.cell(0, 10, txt="4. ปัญหาและอุปสรรคที่พบ (ถ้ามี):", ln=True)
             
             pdf.set_font("Sarabun", size=14)
