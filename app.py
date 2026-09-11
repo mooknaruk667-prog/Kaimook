@@ -17,17 +17,22 @@ def download_font():
     if not os.path.exists(FONT_PATH):
         urllib.request.urlretrieve(FONT_URL, FONT_PATH)
 
-download_font() # สั่งโหลดฟอนต์อัตโนมัติเมื่อเปิดเว็บ
+download_font() 
 
 DATA_FILE = "clinic_data.csv"
 
-# ฟังก์ชันโหลดข้อมูล
+# ฟังก์ชันโหลดข้อมูล (อัปเดต: เพิ่มคอลัมน์ สถานะติดตาม และ วันที่นัดติดตาม)
 def load_data():
     if os.path.exists(DATA_FILE):
-        return pd.read_csv(DATA_FILE)
+        df = pd.read_csv(DATA_FILE)
+        if 'บันทึกติดตาม' not in df.columns: df['บันทึกติดตาม'] = ""
+        if 'สถานะติดตาม' not in df.columns: df['สถานะติดตาม'] = "รอดำเนินการ"
+        if 'วันที่นัดติดตาม' not in df.columns: df['วันที่นัดติดตาม'] = ""
+        return df
     else:
         return pd.DataFrame(columns=[
-            "วันที่", "ชื่อ", "นามสกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", "ประเภทบริการ", "ผลประเมิน"
+            "วันที่", "ชื่อ", "นามสกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
+            "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
         ])
 
 if 'patient_data' not in st.session_state:
@@ -68,7 +73,7 @@ with tab1:
                 "โรงพยาบาลรับเป็นผู้ป่วยใน (admit)"
             ])
         
-        submitted = st.form_submit_button("💾 บันทึกข้อมูล")
+        submitted = st.form_submit_button("💾 บันทึกข้อมูลใหม่")
         if submitted:
             if fname and lname:
                 service_type_str = ", ".join(service_type) if service_type else "ไม่ได้ระบุ"
@@ -78,7 +83,8 @@ with tab1:
                     "วันที่": datetime.now().strftime("%d/%m/%Y %H:%M"),
                     "ชื่อ": fname, "นามสกุล": lname, "เพศ": gender, "อายุ": age,
                     "แดน/ห้อง": room, "คดี": case_type, "ครั้งที่": visit_count,
-                    "ประเภทบริการ": service_type_str, "ผลประเมิน": result_str 
+                    "ประเภทบริการ": service_type_str, "ผลประเมิน": result_str,
+                    "บันทึกติดตาม": "", "สถานะติดตาม": "รอดำเนินการ", "วันที่นัดติดตาม": ""
                 }
                 
                 st.session_state['patient_data'].loc[len(st.session_state['patient_data'])] = new_data
@@ -88,14 +94,110 @@ with tab1:
                 st.error("⚠️ กรุณากรอกชื่อและนามสกุล")
 
     st.subheader("📋 ตารางข้อมูลปัจจุบัน")
-    st.dataframe(st.session_state['patient_data'], use_container_width=True)
+    df_current = st.session_state['patient_data']
+    
+    def highlight_abnormal(row):
+        if "พบความผิดปกติ" in str(row['ผลประเมิน']):
+            return ['background-color: #ffe6e6; color: #990000'] * len(row)
+        return [''] * len(row)
+    
+    if not df_current.empty:
+        styled_df = df_current.style.apply(highlight_abnormal, axis=1)
+        st.dataframe(styled_df, use_container_width=True)
+    else:
+        st.dataframe(df_current, use_container_width=True)
 
+
+    # ================= ส่วนแจ้งเตือนติดตามผู้ป่วย =================
+    st.markdown("---")
+    st.subheader("🔔 แจ้งเตือนเคสที่ต้องติดตามต่อ")
+    if not df_current.empty:
+        to_follow_up = df_current[df_current['สถานะติดตาม'] == 'ติดตามต่อ']
+        if not to_follow_up.empty:
+            for idx, row in to_follow_up.iterrows():
+                date_str = row['วันที่นัดติดตาม'] if pd.notna(row['วันที่นัดติดตาม']) and row['วันที่นัดติดตาม'] != "" else "ไม่ได้ระบุวัน"
+                st.warning(f"📅 **นัดติดตามอาการ:** {row['ชื่อ']} {row['นามสกุล']} (แดน: {row['แดน/ห้อง']}) — นัดหมายวันที่: **{date_str}**")
+        else:
+            st.info("🎉 ปัจจุบันไม่มีเคสที่ค้างการติดตาม")
+
+    # ================= ส่วนระบบติดตามผู้ป่วย (Follow-up) =================
+    st.markdown("---")
+    st.subheader("🚨 ระบบอัปเดตสถานะผู้ป่วย")
+    
+    if not df_current.empty:
+        abnormal_patients = df_current[df_current['ผลประเมิน'].astype(str).str.contains("พบความผิดปกติ", na=False)]
+        
+        if not abnormal_patients.empty:
+            for idx, row in abnormal_patients.iterrows():
+                status_icon = "🟢" if row['สถานะติดตาม'] == "ปิดเคส" else ("🟡" if row['สถานะติดตาม'] == "ติดตามต่อ" else "🔴")
+                
+                with st.expander(f"{status_icon} อัปเดตอาการ: {row['ชื่อ']} {row['นามสกุล']} [สถานะ: {row['สถานะติดตาม']}]"):
+                    st.write(f"**วันที่รับบริการ:** {row['วันที่']} | **ผลประเมินเดิม:** {row['ผลประเมิน']}")
+                    
+                    # 1. Dropdown เลือกสถานะ
+                    status_options = ["รอดำเนินการ", "ติดตามแล้ว", "ติดตามต่อ", "ปิดเคส"]
+                    current_status = row['สถานะติดตาม'] if pd.notna(row['สถานะติดตาม']) else "รอดำเนินการ"
+                    status_idx = status_options.index(current_status) if current_status in status_options else 0
+                    
+                    new_status = st.selectbox("สถานะการติดตาม", status_options, index=status_idx, key=f"status_{idx}")
+                    
+                    # 2. ปฏิทินเลือกวัน (แสดงเฉพาะเมื่อเลือก 'ติดตามต่อ')
+                    new_date_str = row['วันที่นัดติดตาม']
+                    if new_status == "ติดตามต่อ":
+                        parsed_date = datetime.now().date()
+                        if pd.notna(row['วันที่นัดติดตาม']) and str(row['วันที่นัดติดตาม']).strip() != "":
+                            try:
+                                parsed_date = datetime.strptime(str(row['วันที่นัดติดตาม']), "%Y-%m-%d").date()
+                            except ValueError:
+                                pass
+                        
+                        selected_date = st.date_input("ระบุวันที่นัดติดตามครั้งต่อไป", value=parsed_date, key=f"date_{idx}")
+                        new_date_str = selected_date.strftime("%Y-%m-%d")
+                    else:
+                        new_date_str = "" # ล้างค่าวันที่ถ้าไม่ได้เลือกติดตามต่อ
+                    
+                    # 3. บันทึกข้อความ
+                    current_note = row['บันทึกติดตาม'] if pd.notna(row['บันทึกติดตาม']) else ""
+                    new_note = st.text_area("บันทึกความคืบหน้าของอาการ:", value=current_note, key=f"note_{idx}")
+                    
+                    # 4. ปุ่มเซฟ
+                    if st.button("💾 บันทึกอัปเดต", key=f"save_note_{idx}"):
+                        st.session_state['patient_data'].at[idx, 'บันทึกติดตาม'] = new_note
+                        st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = new_status
+                        st.session_state['patient_data'].at[idx, 'วันที่นัดติดตาม'] = new_date_str
+                        st.session_state['patient_data'].to_csv(DATA_FILE, index=False)
+                        st.success("บันทึกการติดตามเรียบร้อยแล้ว!")
+                        st.rerun() 
+        else:
+            st.success("ไม่มีผู้ป่วยที่พบความผิดปกติ")
+
+
+    # ================= ส่วนลบข้อมูล =================
+    st.markdown("---")
+    st.subheader("🗑️ ลบข้อมูลที่บันทึกผิดพลาด")
+    
+    if not df_current.empty:
+        delete_options = []
+        for idx, row in df_current.iterrows():
+            delete_options.append(f"[{idx}] {row['ชื่อ']} {row['นามสกุล']} (บันทึกเมื่อ: {row['วันที่']})")
+            
+        selected_to_delete = st.selectbox("เลือกข้อมูลที่ต้องการลบ:", delete_options)
+        
+        if st.button("❌ ยืนยันการลบข้อมูล"):
+            idx_str = selected_to_delete.split("]")[0].replace("[", "")
+            index_to_delete = int(idx_str)
+            
+            st.session_state['patient_data'] = df_current.drop(index_to_delete).reset_index(drop=True)
+            st.session_state['patient_data'].to_csv(DATA_FILE, index=False)
+            st.success("✅ ลบข้อมูลเรียบร้อยแล้ว!")
+            st.rerun()
+    else:
+        st.info("ไม่มีข้อมูลให้ลบ")
 
 # ================= TAB 2: สรุปรายงาน สจ.21 =================
 with tab2:
     st.subheader("⚙️ ตั้งค่ารายงาน (ข้อมูลส่วนหัวและส่วนท้าย)")
     
-    # 1. รับข้อมูลสำหรับการออกรายงาน
     col_m, col_y, col_d = st.columns(3)
     with col_m:
         months_th = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
@@ -106,7 +208,6 @@ with tab2:
     with col_d:
         report_date = st.date_input("ข้อมูล ณ วันที่", datetime.now())
         
-    # อัปเดต: แยกเป็น 2 ช่อง สำหรับพิมพ์ระบุกิจกรรม และ จำนวนครั้ง
     col_act1, col_act2 = st.columns([3, 1])
     with col_act1:
         other_act_name = st.text_input("กิจกรรมส่งเสริมสุขภาพจิตอื่นๆ (ระบุชื่อกิจกรรม)", placeholder="เช่น จัดบอร์ดความรู้, เสียงตามสาย...")
@@ -115,7 +216,6 @@ with tab2:
         
     problems = st.text_area("4. ปัญหาและอุปสรรคที่พบ (ถ้ามี)", placeholder="พิมพ์ปัญหาหรืออุปสรรคที่นี่...")
 
-    # 2. คำนวณสรุปยอด
     df = st.session_state['patient_data']
     
     def count_data(service_kw="", result_kw="", gender=""):
@@ -163,19 +263,16 @@ with tab2:
         summary_df = pd.DataFrame(summary_data)
         st.table(summary_df)
         
-        # 3. ฟังก์ชันสร้าง PDF
         def generate_pdf():
             pdf = FPDF()
             pdf.add_page()
             
-            # ตรวจสอบและตั้งค่าฟอนต์ไทย
             if os.path.exists(FONT_PATH):
                 pdf.add_font("Sarabun", style="", fname=FONT_PATH)
                 pdf.set_font("Sarabun", size=18)
             else:
                 pdf.set_font("Arial", size=16)
 
-            # ส่วนหัวรายงาน
             pdf.cell(0, 10, "แบบรายงานการดำเนินงานคลินิกคลายเครียด", ln=True, align="C")
             pdf.set_font("Sarabun", size=16)
             pdf.cell(0, 10, f"เรือนจำจังหวัดบุรีรัมย์ ประจำเดือน {report_month} พ.ศ. {report_year}", ln=True, align="C")
@@ -184,30 +281,22 @@ with tab2:
             pdf.cell(0, 10, f"(ข้อมูล ณ วันที่ {date_str})", ln=True, align="C")
             pdf.ln(5)
 
-            # ส่วนเนื้อหา (ตารางสรุป)
             pdf.set_font("Sarabun", size=14)
             for idx, row in summary_df.iterrows():
                 item = row["รายการ (ตาม สจ.21)"]
                 m = row["ชาย"]
                 f = row["หญิง"]
-                
-                # จัดรูปแบบให้เหมือนตารางบรรทัดต่อบรรทัด
                 pdf.cell(130, 8, txt=item, border=0)
                 pdf.cell(30, 8, txt=f"ชาย: {m} ราย", border=0)
                 pdf.cell(30, 8, txt=f"หญิง: {f} ราย", border=0, ln=True)
 
-            # ส่วนท้าย (ข้อมูลเพิ่มเติม)
             pdf.ln(5)
             pdf.set_font("Sarabun", size=15)
-            
-            # อัปเดต: นำชื่อกิจกรรมและจำนวนครั้งมาแสดง
             act_text = other_act_name if other_act_name.strip() else "- ไม่ได้ระบุ -"
             pdf.cell(0, 10, txt=f"กิจกรรมส่งเสริมสุขภาพจิตอื่นๆ (ระบุ): {act_text}    จำนวน {other_act_count} ครั้ง", ln=True)
-            
             pdf.cell(0, 10, txt="4. ปัญหาและอุปสรรคที่พบ (ถ้ามี):", ln=True)
             
             pdf.set_font("Sarabun", size=14)
-            # ตัดบรรทัดอัตโนมัติหากข้อความยาว
             pdf.multi_cell(0, 8, txt=problems if problems.strip() else "- ไม่มี -")
             
             pdf.ln(20)
@@ -216,7 +305,6 @@ with tab2:
             
             return bytes(pdf.output())
 
-        # 4. ปุ่มดาวน์โหลด
         st.markdown("### 📥 ดาวน์โหลดรายงาน")
         col_btn1, col_btn2 = st.columns(2)
         
