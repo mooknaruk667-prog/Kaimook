@@ -21,22 +21,28 @@ download_font()
 
 DATA_FILE = "clinic_data.csv"
 
-# ฟังก์ชันโหลดข้อมูล (อัปเดต: เพิ่มคอลัมน์ สถานะติดตาม และ วันที่นัดติดตาม)
+# ฟังก์ชันโหลดข้อมูล
 def load_data():
     if os.path.exists(DATA_FILE):
-        df = pd.read_csv(DATA_FILE)
-        if 'บันทึกติดตาม' not in df.columns: df['บันทึกติดตาม'] = ""
-        if 'สถานะติดตาม' not in df.columns: df['สถานะติดตาม'] = "รอดำเนินการ"
-        if 'วันที่นัดติดตาม' not in df.columns: df['วันที่นัดติดตาม'] = ""
-        return df
+        return pd.read_csv(DATA_FILE)
     else:
         return pd.DataFrame(columns=[
             "วันที่", "ชื่อ", "นามสกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
-            "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
+            "ประเภทบริการ", "ผลประเมิน"
         ])
 
 if 'patient_data' not in st.session_state:
     st.session_state['patient_data'] = load_data()
+
+# ================= ส่วนสำคัญที่เพิ่มเพื่อแก้บั๊ก KeyError =================
+# ตรวจสอบและบังคับเพิ่มคอลัมน์ใหม่ให้ข้อมูลเก่าเสมอ เพื่อป้องกัน Error
+if 'บันทึกติดตาม' not in st.session_state['patient_data'].columns:
+    st.session_state['patient_data']['บันทึกติดตาม'] = ""
+if 'สถานะติดตาม' not in st.session_state['patient_data'].columns:
+    st.session_state['patient_data']['สถานะติดตาม'] = "รอดำเนินการ"
+if 'วันที่นัดติดตาม' not in st.session_state['patient_data'].columns:
+    st.session_state['patient_data']['วันที่นัดติดตาม'] = ""
+# ====================================================================
 
 st.title("🏥 ระบบบันทึกข้อมูลคลินิกคลายเครียด (สจ.21)")
 st.markdown("ใช้สำหรับบันทึกข้อมูลผู้เข้ารับบริการ และออกรายงาน สจ.21 เป็นไฟล์ Excel และ PDF")
@@ -97,7 +103,7 @@ with tab1:
     df_current = st.session_state['patient_data']
     
     def highlight_abnormal(row):
-        if "พบความผิดปกติ" in str(row['ผลประเมิน']):
+        if "พบความผิดปกติ" in str(row.get('ผลประเมิน', '')):
             return ['background-color: #ffe6e6; color: #990000'] * len(row)
         return [''] * len(row)
     
@@ -134,14 +140,12 @@ with tab1:
                 with st.expander(f"{status_icon} อัปเดตอาการ: {row['ชื่อ']} {row['นามสกุล']} [สถานะ: {row['สถานะติดตาม']}]"):
                     st.write(f"**วันที่รับบริการ:** {row['วันที่']} | **ผลประเมินเดิม:** {row['ผลประเมิน']}")
                     
-                    # 1. Dropdown เลือกสถานะ
                     status_options = ["รอดำเนินการ", "ติดตามแล้ว", "ติดตามต่อ", "ปิดเคส"]
                     current_status = row['สถานะติดตาม'] if pd.notna(row['สถานะติดตาม']) else "รอดำเนินการ"
                     status_idx = status_options.index(current_status) if current_status in status_options else 0
                     
                     new_status = st.selectbox("สถานะการติดตาม", status_options, index=status_idx, key=f"status_{idx}")
                     
-                    # 2. ปฏิทินเลือกวัน (แสดงเฉพาะเมื่อเลือก 'ติดตามต่อ')
                     new_date_str = row['วันที่นัดติดตาม']
                     if new_status == "ติดตามต่อ":
                         parsed_date = datetime.now().date()
@@ -154,13 +158,11 @@ with tab1:
                         selected_date = st.date_input("ระบุวันที่นัดติดตามครั้งต่อไป", value=parsed_date, key=f"date_{idx}")
                         new_date_str = selected_date.strftime("%Y-%m-%d")
                     else:
-                        new_date_str = "" # ล้างค่าวันที่ถ้าไม่ได้เลือกติดตามต่อ
+                        new_date_str = "" 
                     
-                    # 3. บันทึกข้อความ
                     current_note = row['บันทึกติดตาม'] if pd.notna(row['บันทึกติดตาม']) else ""
                     new_note = st.text_area("บันทึกความคืบหน้าของอาการ:", value=current_note, key=f"note_{idx}")
                     
-                    # 4. ปุ่มเซฟ
                     if st.button("💾 บันทึกอัปเดต", key=f"save_note_{idx}"):
                         st.session_state['patient_data'].at[idx, 'บันทึกติดตาม'] = new_note
                         st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = new_status
@@ -220,12 +222,13 @@ with tab2:
     
     def count_data(service_kw="", result_kw="", gender=""):
         mask = pd.Series(True, index=df.index)
-        if gender: mask = mask & (df['เพศ'] == gender)
-        if service_kw: mask = mask & df['ประเภทบริการ'].str.contains(service_kw, na=False)
-        if result_kw: mask = mask & df['ผลประเมิน'].str.contains(result_kw, na=False)
+        if gender: mask = mask & (df.get('เพศ', '') == gender)
+        if service_kw: mask = mask & df.get('ประเภทบริการ', pd.Series(dtype=str)).str.contains(service_kw, na=False)
+        if result_kw: mask = mask & df.get('ผลประเมิน', pd.Series(dtype=str)).str.contains(result_kw, na=False)
         return mask.sum()
 
     def count_unique_person(service_kw, gender):
+        if 'เพศ' not in df.columns or 'ประเภทบริการ' not in df.columns or 'ชื่อ' not in df.columns: return 0
         filtered_df = df[(df['เพศ'] == gender) & (df['ประเภทบริการ'].str.contains(service_kw, na=False))]
         return filtered_df['ชื่อ'].nunique()
 
