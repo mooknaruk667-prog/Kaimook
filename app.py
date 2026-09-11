@@ -34,7 +34,7 @@ with st.form("patient_form", clear_on_submit=True):
         case_type = st.text_input("ฐานความผิด / คดี", placeholder="เช่น ลักทรัพย์, ยาเสพติด")
         visit_count = st.number_input("รับบริการครั้งที่", min_value=1, step=1)
         
-        # อัปเดต: เปลี่ยนเป็น multiselect ให้เลือกได้มากกว่า 1 ข้อ
+        # เลือกได้มากกว่า 1 ข้อ
         service_type = st.multiselect("ประเภทการเข้ารับบริการ (ตาม สจ.21) *เลือกได้มากกว่า 1 ข้อ", [
             "1. คัดกรองผู้ต้องขังเข้าใหม่",
             "2. คัดกรองซ้ำ (รายเก่า)",
@@ -44,7 +44,8 @@ with st.form("patient_form", clear_on_submit=True):
             "6. เฝ้าระวังผู้ต้องขังมีพฤติกรรมเสี่ยงฆ่าตัวตาย"
         ])
         
-        result = st.selectbox("ผลการประเมิน / การดำเนินการ", [
+        # อัปเดต: เปลี่ยนเป็น multiselect ให้เลือกได้มากกว่า 1 ข้อ
+        result = st.multiselect("ผลการประเมิน / การดำเนินการ *เลือกได้มากกว่า 1 ข้อ", [
             "ปกติ",
             "พบความผิดปกติ",
             "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา",
@@ -60,6 +61,7 @@ with st.form("patient_form", clear_on_submit=True):
         if fname and lname:
             # นำข้อมูลที่เลือกหลายข้อมาต่อกันด้วยคอมม่า (,)
             service_type_str = ", ".join(service_type) if service_type else "ไม่ได้ระบุ"
+            result_str = ", ".join(result) if result else "ไม่ได้ระบุ"
             
             new_data = {
                 "วันที่": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -70,8 +72,8 @@ with st.form("patient_form", clear_on_submit=True):
                 "แดน/ห้อง": room,
                 "คดี": case_type,
                 "ครั้งที่": visit_count,
-                "ประเภทบริการ": service_type_str, # บันทึกเป็นข้อความที่รวมแล้ว
-                "ผลประเมิน": result
+                "ประเภทบริการ": service_type_str, 
+                "ผลประเมิน": result_str # บันทึกเป็นข้อความที่รวมแล้ว
             }
             # เพิ่มข้อมูลใหม่ลงในตาราง
             st.session_state['patient_data'].loc[len(st.session_state['patient_data'])] = new_data
