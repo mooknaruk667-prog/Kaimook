@@ -27,16 +27,13 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     try:
-        # ดึงข้อมูลจาก Google Sheets
         df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", ttl=0)
-        
         if df.empty or len(df.columns) == 0:
             df = pd.DataFrame(columns=[
                 "วันที่", "ชื่อ", "นามสกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
                 "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
             ])
             conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=df)
-            
         return df
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
@@ -55,7 +52,6 @@ if 'สถานะติดตาม' not in st.session_state['patient_data'].c
     st.session_state['patient_data']['สถานะติดตาม'] = "รอดำเนินการ"
 if 'วันที่นัดติดตาม' not in st.session_state['patient_data'].columns:
     st.session_state['patient_data']['วันที่นัดติดตาม'] = ""
-# ==========================================================
 
 st.title("🏥 ระบบบันทึกข้อมูลคลินิกคลายเครียด (สจ.21)")
 st.markdown("ระบบออนไลน์ เชื่อมต่อฐานข้อมูล Cloud (ข้อมูลปลอดภัย 100%)")
@@ -113,17 +109,23 @@ with tab1:
             else:
                 st.error("⚠️ กรุณากรอกชื่อและนามสกุล")
 
-    st.subheader("📋 ตารางข้อมูลปัจจุบัน")
+    # ================= ส่วนตารางที่แก้ไขได้ (Interactive Data Editor) =================
+    st.markdown("---")
+    st.subheader("📋 ตารางข้อมูลปัจจุบัน (สามารถแก้ไขข้อมูลในตารางได้โดยตรง)")
+    st.info("💡 **วิธีใช้งาน:** ดับเบิลคลิกที่ช่องเพื่อพิมพ์แก้ไขข้อความ และสามารถติ๊กเลือกแถวเพื่อลบข้อมูลได้ เมื่อแก้เสร็จแล้วให้กดปุ่ม **'ยืนยันการแก้ไข'** ด้านล่าง")
+    
     df_current = st.session_state['patient_data']
     
-    def highlight_abnormal(row):
-        if "พบความผิดปกติ" in str(row.get('ผลประเมิน', '')):
-            return ['background-color: #ffe6e6; color: #990000'] * len(row)
-        return [''] * len(row)
-    
     if not df_current.empty:
-        styled_df = df_current.style.apply(highlight_abnormal, axis=1)
-        st.dataframe(styled_df, use_container_width=True)
+        # ใช้ st.data_editor ทำให้แก้ข้อมูลได้โดยตรง
+        edited_df = st.data_editor(df_current, num_rows="dynamic", use_container_width=True)
+        
+        # ปุ่มยืนยันการเซฟข้อมูลที่แก้กลับไปที่ Google Sheets
+        if st.button("💾 ยืนยันการแก้ไขและบันทึกลงฐานข้อมูล"):
+            st.session_state['patient_data'] = edited_df
+            conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=edited_df)
+            st.success("✅ บันทึกการแก้ไขทั้งหมดลง Google Sheets เรียบร้อยแล้ว!")
+            st.rerun()
     else:
         st.dataframe(df_current, use_container_width=True)
 
@@ -131,7 +133,7 @@ with tab1:
     st.markdown("---")
     st.subheader("🔔 แจ้งเตือนเคสที่ต้องติดตามต่อ")
     if not df_current.empty:
-        to_follow_up = df_current[df_current['สถานะติดตาม'] == 'ติดตามต่อ']
+        to_follow_up = st.session_state['patient_data'][st.session_state['patient_data']['สถานะติดตาม'] == 'ติดตามต่อ']
         if not to_follow_up.empty:
             for idx, row in to_follow_up.iterrows():
                 date_str = row['วันที่นัดติดตาม'] if pd.notna(row['วันที่นัดติดตาม']) and row['วันที่นัดติดตาม'] != "" else "ไม่ได้ระบุวัน"
@@ -144,7 +146,7 @@ with tab1:
     st.subheader("🚨 ระบบอัปเดตสถานะผู้ป่วย")
     
     if not df_current.empty:
-        abnormal_patients = df_current[df_current['ผลประเมิน'].astype(str).str.contains("พบความผิดปกติ", na=False)]
+        abnormal_patients = st.session_state['patient_data'][st.session_state['patient_data']['ผลประเมิน'].astype(str).str.contains("พบความผิดปกติ", na=False)]
         
         if not abnormal_patients.empty:
             for idx, row in abnormal_patients.iterrows():
@@ -186,29 +188,6 @@ with tab1:
                         st.rerun() 
         else:
             st.success("ไม่มีผู้ป่วยที่พบความผิดปกติ")
-
-    # ================= ส่วนลบข้อมูล =================
-    st.markdown("---")
-    st.subheader("🗑️ ลบข้อมูลที่บันทึกผิดพลาด")
-    
-    if not df_current.empty:
-        delete_options = []
-        for idx, row in df_current.iterrows():
-            delete_options.append(f"[{idx}] {row['ชื่อ']} {row['นามสกุล']} (บันทึกเมื่อ: {row['วันที่']})")
-            
-        selected_to_delete = st.selectbox("เลือกข้อมูลที่ต้องการลบ:", delete_options)
-        
-        if st.button("❌ ยืนยันการลบข้อมูล"):
-            idx_str = selected_to_delete.split("]")[0].replace("[", "")
-            index_to_delete = int(idx_str)
-            
-            st.session_state['patient_data'] = df_current.drop(index_to_delete).reset_index(drop=True)
-            conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=st.session_state['patient_data'])
-            
-            st.success("✅ ลบข้อมูลออกจากฐานข้อมูลเรียบร้อยแล้ว!")
-            st.rerun()
-    else:
-        st.info("ไม่มีข้อมูลให้ลบ")
 
 # ================= TAB 2: สรุปรายงาน สจ.21 =================
 with tab2:
