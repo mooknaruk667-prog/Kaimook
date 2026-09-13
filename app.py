@@ -28,6 +28,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def load_data():
     try:
         df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", ttl=0)
+        df = df.fillna("") # ป้องกันค่าว่าง (NaN) ที่ทำให้ตารางพัง
         
         # ถ้ายกเลิกชีตว่างๆ ให้สร้างหัวคอลัมน์ใหม่
         if df.empty or len(df.columns) == 0:
@@ -37,19 +38,23 @@ def load_data():
             ])
             conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=df)
         else:
-            # ระบบรวมคอลัมน์อัตโนมัติ สำหรับข้อมูลเก่าที่มี "ชื่อ" และ "นามสกุล" แยกกัน
             needs_update = False
+            # รวมคอลัมน์ชื่อและนามสกุลเก่าให้เป็น "ชื่อ-สกุล"
             if 'ชื่อ' in df.columns and 'นามสกุล' in df.columns:
-                df['ชื่อ-สกุล'] = df['ชื่อ'].fillna('') + " " + df['นามสกุล'].fillna('')
+                df['ชื่อ-สกุล'] = df['ชื่อ'].astype(str) + " " + df['นามสกุล'].astype(str)
                 df['ชื่อ-สกุล'] = df['ชื่อ-สกุล'].str.strip()
                 df = df.drop(columns=['ชื่อ', 'นามสกุล'])
                 needs_update = True
                 
+            # ตรวจสอบว่าคอลัมน์ครบไหม ถ้าไม่ครบให้เพิ่ม
+            cols = ["วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"]
+            for c in cols:
+                if c not in df.columns:
+                    df[c] = ""
+                    needs_update = True
+
             if needs_update:
-                # จัดเรียงคอลัมน์ใหม่ให้สวยงาม
-                cols = ["วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"]
-                existing_cols = [c for c in cols if c in df.columns]
-                df = df[existing_cols]
+                df = df[cols]
                 conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=df)
                 
         return df
@@ -63,16 +68,6 @@ def load_data():
 if 'patient_data' not in st.session_state:
     st.session_state['patient_data'] = load_data()
 
-# ตรวจสอบและบังคับเพิ่มคอลัมน์
-if 'บันทึกติดตาม' not in st.session_state['patient_data'].columns:
-    st.session_state['patient_data']['บันทึกติดตาม'] = ""
-if 'สถานะติดตาม' not in st.session_state['patient_data'].columns:
-    st.session_state['patient_data']['สถานะติดตาม'] = "รอดำเนินการ"
-if 'วันที่นัดติดตาม' not in st.session_state['patient_data'].columns:
-    st.session_state['patient_data']['วันที่นัดติดตาม'] = ""
-if 'ชื่อ-สกุล' not in st.session_state['patient_data'].columns:
-    st.session_state['patient_data']['ชื่อ-สกุล'] = ""
-
 st.title("🏥 ระบบบันทึกข้อมูลคลินิกคลายเครียด (สจ.21)")
 st.markdown("ระบบออนไลน์ เชื่อมต่อฐานข้อมูล Cloud (ข้อมูลปลอดภัย 100%)")
 
@@ -85,7 +80,6 @@ with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
-            # เปลี่ยนเป็นช่องกรอก ชื่อ-สกุล ช่องเดียว
             full_name = st.text_input("ชื่อ-สกุล", placeholder="เช่น สมชาย มั่นคง")
             gender = st.radio("เพศ", ["ชาย", "หญิง"], horizontal=True)
             age = st.number_input("อายุ (ปี)", min_value=15, max_value=100, step=1)
@@ -123,7 +117,11 @@ with tab1:
                     "บันทึกติดตาม": "", "สถานะติดตาม": "รอดำเนินการ", "วันที่นัดติดตาม": ""
                 }
                 
-                st.session_state['patient_data'].loc[len(st.session_state['patient_data'])] = new_data
+                # [อัปเดตแก๊บั๊ก] ใช้ pd.concat ป้องกันข้อมูลเขียนทับแถวเดิม
+                new_df = pd.DataFrame([new_data])
+                st.session_state['patient_data'] = pd.concat([st.session_state['patient_data'], new_df], ignore_index=True)
+                
+                # ส่งขึ้น Google Sheets ทันที
                 conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=st.session_state['patient_data'])
                 
                 st.success(f"✅ บันทึกข้อมูลของ {full_name} ขึ้นฐานข้อมูลสำเร็จ!")
@@ -169,6 +167,8 @@ with tab1:
         )
         
         if st.button("💾 ยืนยันการแก้ไขและบันทึกลงฐานข้อมูล"):
+            # รีเซ็ต index ใหม่ทุกครั้งที่มีคนลบแถว ป้องกันบั๊กแถวกระโดด
+            edited_df = edited_df.reset_index(drop=True) 
             st.session_state['patient_data'] = edited_df
             conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=edited_df)
             st.success("✅ บันทึกการแก้ไขทั้งหมดลง Google Sheets เรียบร้อยแล้ว!")
@@ -226,7 +226,7 @@ with tab1:
 
                     # 3. เลือกสถานะ
                     status_options = ["รอดำเนินการ", "ติดตามแล้ว", "ติดตามต่อ", "ปิดเคส"]
-                    current_status = row['สถานะติดตาม'] if pd.notna(row['สถานะติดตาม']) else "รอดำเนินการ"
+                    current_status = row['สถานะติดตาม'] if pd.notna(row['สถานะติดตาม']) and row['สถานะติดตาม'] != "" else "รอดำเนินการ"
                     status_idx = status_options.index(current_status) if current_status in status_options else 0
                     new_status = st.selectbox("สถานะการติดตาม", status_options, index=status_idx, key=f"status_{idx}")
                     
@@ -251,9 +251,9 @@ with tab1:
                     
                     # 6. ตั้งค่าการบวกจำนวนครั้ง
                     next_visit_num = 2
-                    if pd.notna(row['ครั้งที่']):
+                    if pd.notna(row['ครั้งที่']) and str(row['ครั้งที่']).strip() != "":
                         try:
-                            next_visit_num = int(row['ครั้งที่']) + 1
+                            next_visit_num = int(float(row['ครั้งที่'])) + 1
                         except ValueError:
                             pass
                     
@@ -263,7 +263,7 @@ with tab1:
                         if create_new_visit:
                             st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = "บันทึกครั้งใหม่แล้ว"
                             
-                            new_row = row.copy()
+                            new_row = row.to_dict()
                             new_row['วันที่'] = datetime.now().strftime("%d/%m/%Y %H:%M")
                             new_row['ครั้งที่'] = next_visit_num
                             new_row['ประเภทบริการ'] = new_service_str
@@ -272,7 +272,9 @@ with tab1:
                             new_row['สถานะติดตาม'] = new_status
                             new_row['วันที่นัดติดตาม'] = new_date_str
                             
-                            st.session_state['patient_data'].loc[len(st.session_state['patient_data'])] = new_row
+                            # [อัปเดตแก๊บั๊ก] ต่อท้ายด้วย pd.concat
+                            new_df = pd.DataFrame([new_row])
+                            st.session_state['patient_data'] = pd.concat([st.session_state['patient_data'], new_df], ignore_index=True)
                         else:
                             st.session_state['patient_data'].at[idx, 'ประเภทบริการ'] = new_service_str
                             st.session_state['patient_data'].at[idx, 'ผลประเมิน'] = new_result_str
