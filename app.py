@@ -31,7 +31,8 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     try:
-        df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", ttl=0)
+        # ใช้ worksheet=0 เพื่อดึงแผ่นงานแรกสุดเสมอ โดยไม่ต้องสนชื่อชีต
+        df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=0, ttl=0)
         df = df.fillna("")
         
         if df.empty or len(df.columns) == 0:
@@ -39,7 +40,7 @@ def load_data():
                 "วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
                 "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
             ])
-            conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=df)
+            conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=df)
         else:
             needs_update = False
             if 'ชื่อ' in df.columns and 'นามสกุล' in df.columns:
@@ -56,7 +57,7 @@ def load_data():
 
             if needs_update:
                 df = df[cols]
-                conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=df)
+                conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=df)
                 
         return df
     except Exception as e:
@@ -86,10 +87,10 @@ with tab1:
     def_case = ""
     
     try:
-        # อ่านข้อมูลจากชีตทะเบียนผู้ต้องขัง
-        inmate_df = conn.read(spreadsheet=INMATE_DB_URL, worksheet="Sheet1", ttl=10)
+        # ใช้ worksheet=0 สำหรับฐานข้อมูลผู้ต้องขังเช่นกัน
+        inmate_df = conn.read(spreadsheet=INMATE_DB_URL, worksheet=0, ttl=10)
+        inmate_df = inmate_df.fillna("")
         
-        # หากลุ่มคนที่เป็น "รายใหม่"
         status_col = None
         for col in inmate_df.columns:
             if 'สถานะ' in col:
@@ -111,10 +112,10 @@ with tab1:
                 row = new_inmates[new_inmates[name_col] == selected_inmate].iloc[0]
                 def_name = str(row[name_col])
                 
-                if "เพศ" in row.index and pd.notna(row["เพศ"]):
+                if "เพศ" in row.index and pd.notna(row["เพศ"]) and str(row["เพศ"]) != "":
                     def_gender = "หญิง" if "หญิง" in str(row["เพศ"]) else "ชาย"
                     
-                if "อายุ" in row.index and pd.notna(row["อายุ"]):
+                if "อายุ" in row.index and pd.notna(row["อายุ"]) and str(row["อายุ"]) != "":
                     try:
                         def_age = int(float(row["อายุ"]))
                     except ValueError:
@@ -126,7 +127,7 @@ with tab1:
             st.info("💡 ขณะนี้ไม่พบรายชื่อสถานะ 'รายใหม่' ในฐานข้อมูล")
             
     except Exception as e:
-        st.error(f"⚠️ ไม่สามารถดึงข้อมูลจากชีตทะเบียนได้ (กรุณาตรวจสอบว่าได้แชร์ไฟล์ให้ Email Bot หรือยัง) Error: {e}")
+        st.error(f"⚠️ ไม่สามารถดึงข้อมูลจากชีตทะเบียนได้ (ตรวจสอบการแชร์ไฟล์ให้ Email Bot หรือลิงก์) Error: {e}")
 
     # ---- ส่วนฟอร์มกรอกข้อมูล ----
     with st.form("patient_form", clear_on_submit=True):
@@ -175,7 +176,7 @@ with tab1:
                 new_df = pd.DataFrame([new_data])
                 st.session_state['patient_data'] = pd.concat([st.session_state['patient_data'], new_df], ignore_index=True)
                 
-                conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=st.session_state['patient_data'])
+                conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=st.session_state['patient_data'])
                 
                 st.success(f"✅ บันทึกข้อมูลของ {full_name} ขึ้นฐานข้อมูลสำเร็จ!")
             else:
@@ -222,7 +223,7 @@ with tab1:
         if st.button("💾 ยืนยันการแก้ไขและบันทึกลงฐานข้อมูล"):
             edited_df = edited_df.reset_index(drop=True) 
             st.session_state['patient_data'] = edited_df
-            conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=edited_df)
+            conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=edited_df)
             st.success("✅ บันทึกการแก้ไขทั้งหมดลง Google Sheets เรียบร้อยแล้ว!")
             st.rerun()
     else:
@@ -327,7 +328,7 @@ with tab1:
                             st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = new_status
                             st.session_state['patient_data'].at[idx, 'วันที่นัดติดตาม'] = new_date_str
                         
-                        conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=st.session_state['patient_data'])
+                        conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=st.session_state['patient_data'])
                         st.success("บันทึกการติดตามเรียบร้อยแล้ว!")
                         st.rerun() 
         else:
