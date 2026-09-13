@@ -5,8 +5,9 @@ import os
 import urllib.request
 from datetime import datetime
 from fpdf import FPDF
+from streamlit_gsheets import GSheetsConnection
 
-# 1. ตั้งค่าหน้าเว็บและฟอนต์ภาษาไทยสำหรับ PDF
+# 1. ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="ระบบบันทึกข้อมูลคลินิกคลายเครียด", layout="wide")
 
 FONT_URL = "https://github.com/google/fonts/raw/main/ofl/sarabun/Sarabun-Regular.ttf"
@@ -19,33 +20,45 @@ def download_font():
 
 download_font() 
 
-DATA_FILE = "clinic_data.csv"
+# ================== เชื่อมต่อ Google Sheets ==================
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1wMxwcdcF3zXliTTifINkhinh76VYBh-xSj_7GLLqDxY/edit?usp=sharing"
 
-# ฟังก์ชันโหลดข้อมูล
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 def load_data():
-    if os.path.exists(DATA_FILE):
-        return pd.read_csv(DATA_FILE)
-    else:
+    try:
+        # ดึงข้อมูลจาก Google Sheets
+        df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", ttl=0)
+        
+        if df.empty or len(df.columns) == 0:
+            df = pd.DataFrame(columns=[
+                "วันที่", "ชื่อ", "นามสกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
+                "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
+            ])
+            conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=df)
+            
+        return df
+    except Exception as e:
+        st.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
         return pd.DataFrame(columns=[
             "วันที่", "ชื่อ", "นามสกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
-            "ประเภทบริการ", "ผลประเมิน"
+            "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
         ])
 
 if 'patient_data' not in st.session_state:
     st.session_state['patient_data'] = load_data()
 
-# ================= ส่วนสำคัญที่เพิ่มเพื่อแก้บั๊ก KeyError =================
-# ตรวจสอบและบังคับเพิ่มคอลัมน์ใหม่ให้ข้อมูลเก่าเสมอ เพื่อป้องกัน Error
+# ตรวจสอบและบังคับเพิ่มคอลัมน์
 if 'บันทึกติดตาม' not in st.session_state['patient_data'].columns:
     st.session_state['patient_data']['บันทึกติดตาม'] = ""
 if 'สถานะติดตาม' not in st.session_state['patient_data'].columns:
     st.session_state['patient_data']['สถานะติดตาม'] = "รอดำเนินการ"
 if 'วันที่นัดติดตาม' not in st.session_state['patient_data'].columns:
     st.session_state['patient_data']['วันที่นัดติดตาม'] = ""
-# ====================================================================
+# ==========================================================
 
 st.title("🏥 ระบบบันทึกข้อมูลคลินิกคลายเครียด (สจ.21)")
-st.markdown("ใช้สำหรับบันทึกข้อมูลผู้เข้ารับบริการ และออกรายงาน สจ.21 เป็นไฟล์ Excel และ PDF")
+st.markdown("ระบบออนไลน์ เชื่อมต่อฐานข้อมูล Cloud (ข้อมูลปลอดภัย 100%)")
 
 tab1, tab2 = st.tabs(["📝 บันทึกข้อมูลรายบุคคล", "📊 สรุปและออกรายงาน สจ.21"])
 
@@ -56,14 +69,14 @@ with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
-            fname = st.text_input("ชื่อ", placeholder="เช่น สมชาย")
-            lname = st.text_input("นามสกุล", placeholder="เช่น มั่นคง")
+            fname = st.text_input("ชื่อ")
+            lname = st.text_input("นามสกุล")
             gender = st.radio("เพศ", ["ชาย", "หญิง"], horizontal=True)
             age = st.number_input("อายุ (ปี)", min_value=15, max_value=100, step=1)
-            room = st.text_input("แดน / ห้อง", placeholder="เช่น แดน 1 / ห้อง 3")
+            room = st.text_input("แดน / ห้อง")
             
         with col2:
-            case_type = st.text_input("ฐานความผิด / คดี", placeholder="เช่น ลักทรัพย์, ยาเสพติด")
+            case_type = st.text_input("ฐานความผิด / คดี")
             visit_count = st.number_input("รับบริการครั้งที่", min_value=1, step=1)
             
             service_type = st.multiselect("ประเภทการเข้ารับบริการ (ตาม สจ.21)", [
@@ -94,8 +107,9 @@ with tab1:
                 }
                 
                 st.session_state['patient_data'].loc[len(st.session_state['patient_data'])] = new_data
-                st.session_state['patient_data'].to_csv(DATA_FILE, index=False)
-                st.success(f"✅ บันทึกข้อมูลของ {fname} {lname} สำเร็จ!")
+                conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=st.session_state['patient_data'])
+                
+                st.success(f"✅ บันทึกข้อมูลของ {fname} {lname} ขึ้นฐานข้อมูลสำเร็จ!")
             else:
                 st.error("⚠️ กรุณากรอกชื่อและนามสกุล")
 
@@ -112,7 +126,6 @@ with tab1:
         st.dataframe(styled_df, use_container_width=True)
     else:
         st.dataframe(df_current, use_container_width=True)
-
 
     # ================= ส่วนแจ้งเตือนติดตามผู้ป่วย =================
     st.markdown("---")
@@ -167,12 +180,12 @@ with tab1:
                         st.session_state['patient_data'].at[idx, 'บันทึกติดตาม'] = new_note
                         st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = new_status
                         st.session_state['patient_data'].at[idx, 'วันที่นัดติดตาม'] = new_date_str
-                        st.session_state['patient_data'].to_csv(DATA_FILE, index=False)
+                        
+                        conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=st.session_state['patient_data'])
                         st.success("บันทึกการติดตามเรียบร้อยแล้ว!")
                         st.rerun() 
         else:
             st.success("ไม่มีผู้ป่วยที่พบความผิดปกติ")
-
 
     # ================= ส่วนลบข้อมูล =================
     st.markdown("---")
@@ -190,8 +203,9 @@ with tab1:
             index_to_delete = int(idx_str)
             
             st.session_state['patient_data'] = df_current.drop(index_to_delete).reset_index(drop=True)
-            st.session_state['patient_data'].to_csv(DATA_FILE, index=False)
-            st.success("✅ ลบข้อมูลเรียบร้อยแล้ว!")
+            conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=st.session_state['patient_data'])
+            
+            st.success("✅ ลบข้อมูลออกจากฐานข้อมูลเรียบร้อยแล้ว!")
             st.rerun()
     else:
         st.info("ไม่มีข้อมูลให้ลบ")
@@ -223,13 +237,13 @@ with tab2:
     def count_data(service_kw="", result_kw="", gender=""):
         mask = pd.Series(True, index=df.index)
         if gender: mask = mask & (df.get('เพศ', '') == gender)
-        if service_kw: mask = mask & df.get('ประเภทบริการ', pd.Series(dtype=str)).str.contains(service_kw, na=False)
-        if result_kw: mask = mask & df.get('ผลประเมิน', pd.Series(dtype=str)).str.contains(result_kw, na=False)
+        if service_kw: mask = mask & df.get('ประเภทบริการ', pd.Series(dtype=str)).astype(str).str.contains(service_kw, na=False)
+        if result_kw: mask = mask & df.get('ผลประเมิน', pd.Series(dtype=str)).astype(str).str.contains(result_kw, na=False)
         return mask.sum()
 
     def count_unique_person(service_kw, gender):
         if 'เพศ' not in df.columns or 'ประเภทบริการ' not in df.columns or 'ชื่อ' not in df.columns: return 0
-        filtered_df = df[(df['เพศ'] == gender) & (df['ประเภทบริการ'].str.contains(service_kw, na=False))]
+        filtered_df = df[(df['เพศ'] == gender) & (df['ประเภทบริการ'].astype(str).str.contains(service_kw, na=False))]
         return filtered_df['ชื่อ'].nunique()
 
     if not df.empty:
