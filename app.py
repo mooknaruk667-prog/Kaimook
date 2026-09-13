@@ -21,16 +21,19 @@ def download_font():
 download_font() 
 
 # ================== เชื่อมต่อ Google Sheets ==================
+# 1. ฐานข้อมูลหลัก (เก็บประวัติการรักษาคลินิก)
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1wMxwcdcF3zXliTTifINkhinh76VYBh-xSj_7GLLqDxY/edit?usp=sharing"
+
+# 2. ฐานข้อมูลทะเบียนผู้ต้องขัง (ดึงรายชื่อมา Auto-fill)
+INMATE_DB_URL = "https://docs.google.com/spreadsheets/d/1dtpMxycg0en1_zdtsQreeLohqOVEqNyZyxCI26O5Zlc/edit?usp=drivesdk"
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     try:
         df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", ttl=0)
-        df = df.fillna("") # ป้องกันค่าว่าง (NaN) ที่ทำให้ตารางพัง
+        df = df.fillna("")
         
-        # ถ้ายกเลิกชีตว่างๆ ให้สร้างหัวคอลัมน์ใหม่
         if df.empty or len(df.columns) == 0:
             df = pd.DataFrame(columns=[
                 "วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
@@ -39,14 +42,12 @@ def load_data():
             conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=df)
         else:
             needs_update = False
-            # รวมคอลัมน์ชื่อและนามสกุลเก่าให้เป็น "ชื่อ-สกุล"
             if 'ชื่อ' in df.columns and 'นามสกุล' in df.columns:
                 df['ชื่อ-สกุล'] = df['ชื่อ'].astype(str) + " " + df['นามสกุล'].astype(str)
                 df['ชื่อ-สกุล'] = df['ชื่อ-สกุล'].str.strip()
                 df = df.drop(columns=['ชื่อ', 'นามสกุล'])
                 needs_update = True
                 
-            # ตรวจสอบว่าคอลัมน์ครบไหม ถ้าไม่ครบให้เพิ่ม
             cols = ["วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"]
             for c in cols:
                 if c not in df.columns:
@@ -59,7 +60,7 @@ def load_data():
                 
         return df
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
+        st.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets หลัก: {e}")
         return pd.DataFrame(columns=[
             "วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
             "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
@@ -75,18 +76,72 @@ tab1, tab2 = st.tabs(["📝 บันทึกข้อมูลรายบุ�
 
 # ================= TAB 1: บันทึกข้อมูล =================
 with tab1:
+    
+    # ---- ส่วนดึงข้อมูล Auto-fill ----
+    st.subheader("📥 ดึงข้อมูลผู้ต้องขัง (Auto-fill)")
+    
+    def_name = ""
+    def_gender = "ชาย"
+    def_age = 30
+    def_case = ""
+    
+    try:
+        # อ่านข้อมูลจากชีตทะเบียนผู้ต้องขัง
+        inmate_df = conn.read(spreadsheet=INMATE_DB_URL, worksheet="Sheet1", ttl=10)
+        
+        # หากลุ่มคนที่เป็น "รายใหม่"
+        status_col = None
+        for col in inmate_df.columns:
+            if 'สถานะ' in col:
+                status_col = col
+                break
+                
+        if status_col:
+            new_inmates = inmate_df[inmate_df[status_col].astype(str).str.contains("รายใหม่", na=False)]
+        else:
+            new_inmates = inmate_df 
+            
+        if not new_inmates.empty:
+            name_col = "ชื่อ-สกุล" if "ชื่อ-สกุล" in new_inmates.columns else new_inmates.columns[0]
+            options = ["-- กรุณาพิมพ์หรือเลือกรายชื่อ --"] + new_inmates[name_col].astype(str).tolist()
+            
+            selected_inmate = st.selectbox("🔍 ค้นหาและเลือกรายชื่อผู้ต้องขัง (เฉพาะรายใหม่):", options)
+            
+            if selected_inmate != "-- กรุณาพิมพ์หรือเลือกรายชื่อ --":
+                row = new_inmates[new_inmates[name_col] == selected_inmate].iloc[0]
+                def_name = str(row[name_col])
+                
+                if "เพศ" in row.index and pd.notna(row["เพศ"]):
+                    def_gender = "หญิง" if "หญิง" in str(row["เพศ"]) else "ชาย"
+                    
+                if "อายุ" in row.index and pd.notna(row["อายุ"]):
+                    try:
+                        def_age = int(float(row["อายุ"]))
+                    except ValueError:
+                        def_age = 30
+                        
+                if "คดี" in row.index and pd.notna(row["คดี"]):
+                    def_case = str(row["คดี"])
+        else:
+            st.info("💡 ขณะนี้ไม่พบรายชื่อสถานะ 'รายใหม่' ในฐานข้อมูล")
+            
+    except Exception as e:
+        st.error(f"⚠️ ไม่สามารถดึงข้อมูลจากชีตทะเบียนได้ (กรุณาตรวจสอบว่าได้แชร์ไฟล์ให้ Email Bot หรือยัง) Error: {e}")
+
+    # ---- ส่วนฟอร์มกรอกข้อมูล ----
     with st.form("patient_form", clear_on_submit=True):
-        st.subheader("บันทึกข้อมูลผู้รับบริการ")
+        st.subheader("📝 บันทึกข้อมูลเข้ารับบริการ")
         col1, col2 = st.columns(2)
         
         with col1:
-            full_name = st.text_input("ชื่อ-สกุล", placeholder="เช่น สมชาย มั่นคง")
-            gender = st.radio("เพศ", ["ชาย", "หญิง"], horizontal=True)
-            age = st.number_input("อายุ (ปี)", min_value=15, max_value=100, step=1)
+            full_name = st.text_input("ชื่อ-สกุล", value=def_name, placeholder="เช่น สมชาย มั่นคง")
+            gender_index = 0 if def_gender == "ชาย" else 1
+            gender = st.radio("เพศ", ["ชาย", "หญิง"], index=gender_index, horizontal=True)
+            age = st.number_input("อายุ (ปี)", min_value=15, max_value=100, step=1, value=def_age)
             room = st.text_input("แดน / ห้อง")
             
         with col2:
-            case_type = st.text_input("ฐานความผิด / คดี")
+            case_type = st.text_input("ฐานความผิด / คดี", value=def_case)
             visit_count = st.number_input("รับบริการครั้งที่", min_value=1, step=1)
             
             service_type = st.multiselect("ประเภทการเข้ารับบริการ (ตาม สจ.21)", [
@@ -117,11 +172,9 @@ with tab1:
                     "บันทึกติดตาม": "", "สถานะติดตาม": "รอดำเนินการ", "วันที่นัดติดตาม": ""
                 }
                 
-                # [อัปเดตแก๊บั๊ก] ใช้ pd.concat ป้องกันข้อมูลเขียนทับแถวเดิม
                 new_df = pd.DataFrame([new_data])
                 st.session_state['patient_data'] = pd.concat([st.session_state['patient_data'], new_df], ignore_index=True)
                 
-                # ส่งขึ้น Google Sheets ทันที
                 conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=st.session_state['patient_data'])
                 
                 st.success(f"✅ บันทึกข้อมูลของ {full_name} ขึ้นฐานข้อมูลสำเร็จ!")
@@ -167,7 +220,6 @@ with tab1:
         )
         
         if st.button("💾 ยืนยันการแก้ไขและบันทึกลงฐานข้อมูล"):
-            # รีเซ็ต index ใหม่ทุกครั้งที่มีคนลบแถว ป้องกันบั๊กแถวกระโดด
             edited_df = edited_df.reset_index(drop=True) 
             st.session_state['patient_data'] = edited_df
             conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=edited_df)
@@ -205,7 +257,6 @@ with tab1:
                 with st.expander(f"{status_icon} อัปเดตอาการ: {row.get('ชื่อ-สกุล', '')} [สถานะ: {row['สถานะติดตาม']}]"):
                     st.write(f"**วันที่รับบริการล่าสุด:** {row['วันที่']} | **เข้ารับบริการครั้งที่:** {row['ครั้งที่']}")
                     
-                    # 1. อัปเดต "ประเภทการเข้ารับบริการ"
                     valid_srv_options = [
                         "คัดกรองผู้ต้องขังเข้าใหม่", "ผู้ต้องขังรายเก่าที่ได้รับการคัดกรองซ้ำ",
                         "ให้บริการตรวจรักษาในเรือนจำ", "ตรวจผ่านระบบ Telepsychiatry",
@@ -217,20 +268,17 @@ with tab1:
                     new_service_list = st.multiselect("ประเภทการเข้ารับบริการ (ครั้งนี้)", valid_srv_options, default=default_srv, key=f"srv_{idx}")
                     new_service_str = ", ".join(new_service_list) if new_service_list else "ไม่ได้ระบุ"
 
-                    # 2. อัปเดต "ผลประเมิน"
                     valid_res_options = ["ปกติ", "พบความผิดปกติ", "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา", "รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช", "ส่งต่อไปรับการรักษานอกเรือนจำ", "โรงพยาบาลรับเป็นผู้ป่วยใน (admit)"]
                     old_res = [r.strip() for r in str(row.get('ผลประเมิน', '')).split(",")]
                     default_res = [r for r in old_res if r in valid_res_options]
                     new_result_list = st.multiselect("ผลประเมิน (อัปเดตล่าสุด)", valid_res_options, default=default_res, key=f"res_{idx}")
                     new_result_str = ", ".join(new_result_list) if new_result_list else "ไม่ได้ระบุ"
 
-                    # 3. เลือกสถานะ
                     status_options = ["รอดำเนินการ", "ติดตามแล้ว", "ติดตามต่อ", "ปิดเคส"]
                     current_status = row['สถานะติดตาม'] if pd.notna(row['สถานะติดตาม']) and row['สถานะติดตาม'] != "" else "รอดำเนินการ"
                     status_idx = status_options.index(current_status) if current_status in status_options else 0
                     new_status = st.selectbox("สถานะการติดตาม", status_options, index=status_idx, key=f"status_{idx}")
                     
-                    # 4. เลือกวันนัด
                     new_date_str = row['วันที่นัดติดตาม']
                     if new_status == "ติดตามต่อ":
                         parsed_date = datetime.now().date()
@@ -245,11 +293,9 @@ with tab1:
                     else:
                         new_date_str = "" 
                     
-                    # 5. บันทึกข้อความ
                     current_note = row['บันทึกติดตาม'] if pd.notna(row['บันทึกติดตาม']) else ""
                     new_note = st.text_area("บันทึกความคืบหน้าของอาการ:", value=current_note, key=f"note_{idx}")
                     
-                    # 6. ตั้งค่าการบวกจำนวนครั้ง
                     next_visit_num = 2
                     if pd.notna(row['ครั้งที่']) and str(row['ครั้งที่']).strip() != "":
                         try:
@@ -272,7 +318,6 @@ with tab1:
                             new_row['สถานะติดตาม'] = new_status
                             new_row['วันที่นัดติดตาม'] = new_date_str
                             
-                            # [อัปเดตแก๊บั๊ก] ต่อท้ายด้วย pd.concat
                             new_df = pd.DataFrame([new_row])
                             st.session_state['patient_data'] = pd.concat([st.session_state['patient_data'], new_df], ignore_index=True)
                         else:
