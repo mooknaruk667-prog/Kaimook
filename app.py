@@ -28,17 +28,35 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def load_data():
     try:
         df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", ttl=0)
+        
+        # ถ้ายกเลิกชีตว่างๆ ให้สร้างหัวคอลัมน์ใหม่
         if df.empty or len(df.columns) == 0:
             df = pd.DataFrame(columns=[
-                "วันที่", "ชื่อ", "นามสกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
+                "วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
                 "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
             ])
             conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=df)
+        else:
+            # ระบบรวมคอลัมน์อัตโนมัติ สำหรับข้อมูลเก่าที่มี "ชื่อ" และ "นามสกุล" แยกกัน
+            needs_update = False
+            if 'ชื่อ' in df.columns and 'นามสกุล' in df.columns:
+                df['ชื่อ-สกุล'] = df['ชื่อ'].fillna('') + " " + df['นามสกุล'].fillna('')
+                df['ชื่อ-สกุล'] = df['ชื่อ-สกุล'].str.strip()
+                df = df.drop(columns=['ชื่อ', 'นามสกุล'])
+                needs_update = True
+                
+            if needs_update:
+                # จัดเรียงคอลัมน์ใหม่ให้สวยงาม
+                cols = ["วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"]
+                existing_cols = [c for c in cols if c in df.columns]
+                df = df[existing_cols]
+                conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=df)
+                
         return df
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
         return pd.DataFrame(columns=[
-            "วันที่", "ชื่อ", "นามสกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
+            "วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
             "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
         ])
 
@@ -52,6 +70,8 @@ if 'สถานะติดตาม' not in st.session_state['patient_data'].c
     st.session_state['patient_data']['สถานะติดตาม'] = "รอดำเนินการ"
 if 'วันที่นัดติดตาม' not in st.session_state['patient_data'].columns:
     st.session_state['patient_data']['วันที่นัดติดตาม'] = ""
+if 'ชื่อ-สกุล' not in st.session_state['patient_data'].columns:
+    st.session_state['patient_data']['ชื่อ-สกุล'] = ""
 
 st.title("🏥 ระบบบันทึกข้อมูลคลินิกคลายเครียด (สจ.21)")
 st.markdown("ระบบออนไลน์ เชื่อมต่อฐานข้อมูล Cloud (ข้อมูลปลอดภัย 100%)")
@@ -65,8 +85,8 @@ with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
-            fname = st.text_input("ชื่อ")
-            lname = st.text_input("นามสกุล")
+            # เปลี่ยนเป็นช่องกรอก ชื่อ-สกุล ช่องเดียว
+            full_name = st.text_input("ชื่อ-สกุล", placeholder="เช่น สมชาย มั่นคง")
             gender = st.radio("เพศ", ["ชาย", "หญิง"], horizontal=True)
             age = st.number_input("อายุ (ปี)", min_value=15, max_value=100, step=1)
             room = st.text_input("แดน / ห้อง")
@@ -90,13 +110,14 @@ with tab1:
         
         submitted = st.form_submit_button("💾 บันทึกข้อมูลใหม่")
         if submitted:
-            if fname and lname:
+            if full_name.strip():
                 service_type_str = ", ".join(service_type) if service_type else "ไม่ได้ระบุ"
                 result_str = ", ".join(result) if result else "ไม่ได้ระบุ"
                 
                 new_data = {
                     "วันที่": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                    "ชื่อ": fname, "นามสกุล": lname, "เพศ": gender, "อายุ": age,
+                    "ชื่อ-สกุล": full_name.strip(), 
+                    "เพศ": gender, "อายุ": age,
                     "แดน/ห้อง": room, "คดี": case_type, "ครั้งที่": visit_count,
                     "ประเภทบริการ": service_type_str, "ผลประเมิน": result_str,
                     "บันทึกติดตาม": "", "สถานะติดตาม": "รอดำเนินการ", "วันที่นัดติดตาม": ""
@@ -105,9 +126,9 @@ with tab1:
                 st.session_state['patient_data'].loc[len(st.session_state['patient_data'])] = new_data
                 conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=st.session_state['patient_data'])
                 
-                st.success(f"✅ บันทึกข้อมูลของ {fname} {lname} ขึ้นฐานข้อมูลสำเร็จ!")
+                st.success(f"✅ บันทึกข้อมูลของ {full_name} ขึ้นฐานข้อมูลสำเร็จ!")
             else:
-                st.error("⚠️ กรุณากรอกชื่อและนามสกุล")
+                st.error("⚠️ กรุณากรอกชื่อ-สกุล")
 
     # ================= ส่วนตารางที่แก้ไขได้ =================
     st.markdown("---")
@@ -163,7 +184,7 @@ with tab1:
         if not to_follow_up.empty:
             for idx, row in to_follow_up.iterrows():
                 date_str = row['วันที่นัดติดตาม'] if pd.notna(row['วันที่นัดติดตาม']) and row['วันที่นัดติดตาม'] != "" else "ไม่ได้ระบุวัน"
-                st.warning(f"📅 **นัดติดตามอาการ:** {row['ชื่อ']} {row['นามสกุล']} (แดน: {row['แดน/ห้อง']}) — นัดหมายวันที่: **{date_str}**")
+                st.warning(f"📅 **นัดติดตามอาการ:** {row.get('ชื่อ-สกุล', '')} (แดน: {row['แดน/ห้อง']}) — นัดหมายวันที่: **{date_str}**")
         else:
             st.info("🎉 ปัจจุบันไม่มีเคสที่ค้างการติดตาม")
 
@@ -181,7 +202,7 @@ with tab1:
             for idx, row in abnormal_patients.iterrows():
                 status_icon = "🟢" if row['สถานะติดตาม'] == "ปิดเคส" else ("🟡" if row['สถานะติดตาม'] == "ติดตามต่อ" else "🔴")
                 
-                with st.expander(f"{status_icon} อัปเดตอาการ: {row['ชื่อ']} {row['นามสกุล']} [สถานะ: {row['สถานะติดตาม']}]"):
+                with st.expander(f"{status_icon} อัปเดตอาการ: {row.get('ชื่อ-สกุล', '')} [สถานะ: {row['สถานะติดตาม']}]"):
                     st.write(f"**วันที่รับบริการล่าสุด:** {row['วันที่']} | **เข้ารับบริการครั้งที่:** {row['ครั้งที่']}")
                     
                     # 1. อัปเดต "ประเภทการเข้ารับบริการ"
@@ -297,9 +318,9 @@ with tab2:
         return mask.sum()
 
     def count_unique_person(service_kw, gender):
-        if 'เพศ' not in df.columns or 'ประเภทบริการ' not in df.columns or 'ชื่อ' not in df.columns: return 0
+        if 'เพศ' not in df.columns or 'ประเภทบริการ' not in df.columns or 'ชื่อ-สกุล' not in df.columns: return 0
         filtered_df = df[(df['เพศ'] == gender) & (df['ประเภทบริการ'].astype(str).str.contains(service_kw, na=False))]
-        return filtered_df['ชื่อ'].nunique()
+        return filtered_df['ชื่อ-สกุล'].nunique()
 
     if not df.empty:
         st.markdown("---")
