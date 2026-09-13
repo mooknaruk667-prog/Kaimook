@@ -31,7 +31,6 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     try:
-        # ใช้ worksheet=0 เพื่อดึงแผ่นงานแรกสุดเสมอ โดยไม่ต้องสนชื่อชีต
         df = conn.read(spreadsheet=SPREADSHEET_URL, worksheet=0, ttl=0)
         df = df.fillna("")
         
@@ -87,15 +86,10 @@ with tab1:
     def_case = ""
     
     try:
-        # ใช้ worksheet=0 สำหรับฐานข้อมูลผู้ต้องขังเช่นกัน
         inmate_df = conn.read(spreadsheet=INMATE_DB_URL, worksheet=0, ttl=10)
         inmate_df = inmate_df.fillna("")
         
-        status_col = None
-        for col in inmate_df.columns:
-            if 'สถานะ' in col:
-                status_col = col
-                break
+        status_col = next((col for col in inmate_df.columns if 'คอลัมน์ 1' in str(col)), None)
                 
         if status_col:
             new_inmates = inmate_df[inmate_df[status_col].astype(str).str.contains("รายใหม่", na=False)]
@@ -124,7 +118,7 @@ with tab1:
                 if "คดี" in row.index and pd.notna(row["คดี"]):
                     def_case = str(row["คดี"])
         else:
-            st.info("💡 ขณะนี้ไม่พบรายชื่อสถานะ 'รายใหม่' ในฐานข้อมูล")
+            st.info("💡 ขณะนี้ไม่พบรายชื่อสถานะ 'รายใหม่' ใน 'คอลัมน์ 1'")
             
     except Exception as e:
         st.error(f"⚠️ ไม่สามารถดึงข้อมูลจากชีตทะเบียนได้ (ตรวจสอบการแชร์ไฟล์ให้ Email Bot หรือลิงก์) Error: {e}")
@@ -135,6 +129,9 @@ with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
+            # เพิ่มปฏิทินเลือกวันที่ ไว้เป็นช่องแรกสุดของคอลัมน์ 1
+            record_date = st.date_input("📅 วันที่เข้ารับบริการ", value=datetime.now())
+            
             full_name = st.text_input("ชื่อ-สกุล", value=def_name, placeholder="เช่น สมชาย มั่นคง")
             gender_index = 0 if def_gender == "ชาย" else 1
             gender = st.radio("เพศ", ["ชาย", "หญิง"], index=gender_index, horizontal=True)
@@ -164,8 +161,11 @@ with tab1:
                 service_type_str = ", ".join(service_type) if service_type else "ไม่ได้ระบุ"
                 result_str = ", ".join(result) if result else "ไม่ได้ระบุ"
                 
+                # บันทึกวันที่ตามที่เลือก + ดึงเวลาปัจจุบันมาต่อท้าย
+                formatted_date = record_date.strftime("%d/%m/%Y") + datetime.now().strftime(" %H:%M")
+                
                 new_data = {
-                    "วันที่": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    "วันที่": formatted_date,
                     "ชื่อ-สกุล": full_name.strip(), 
                     "เพศ": gender, "อายุ": age,
                     "แดน/ห้อง": room, "คดี": case_type, "ครั้งที่": visit_count,
@@ -177,66 +177,82 @@ with tab1:
                 st.session_state['patient_data'] = pd.concat([st.session_state['patient_data'], new_df], ignore_index=True)
                 
                 conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=st.session_state['patient_data'])
-                
                 st.success(f"✅ บันทึกข้อมูลของ {full_name} ขึ้นฐานข้อมูลสำเร็จ!")
             else:
                 st.error("⚠️ กรุณากรอกชื่อ-สกุล")
 
-    # ================= ส่วนตารางที่แก้ไขได้ =================
+    # ================= ส่วนตารางที่แก้ไขได้ พร้อมระบบกรองวันที่ =================
     st.markdown("---")
-    st.subheader("📋 ตารางข้อมูลปัจจุบัน (สามารถแก้ไขข้อมูลในตารางได้โดยตรง)")
-    st.info("💡 **วิธีใช้งาน:** ดับเบิลคลิกที่ช่องเพื่อพิมพ์แก้ไขหรือเลือก Drop-down และสามารถคลิกเลือกแถวเพื่อลบข้อมูลได้ เมื่อแก้เสร็จแล้วให้กดปุ่ม **'ยืนยันการแก้ไข'** ด้านล่าง")
+    st.subheader("📋 ตารางข้อมูลปัจจุบัน")
     
-    df_current = st.session_state['patient_data']
+    filter_mode = st.radio("รูปแบบการแสดงตาราง:", ["แสดงข้อมูลทั้งหมด", "กรองตามช่วงวันที่ (ค้นหา)"], horizontal=True)
+    df_to_show = st.session_state['patient_data'].copy()
     
-    if not df_current.empty:
+    if filter_mode == "กรองตามช่วงวันที่ (ค้นหา)":
+        selected_dates = st.date_input("📅 เลือกช่วงวันที่ ที่ต้องการดู/แก้ไข", [])
+        if len(selected_dates) == 2:
+            start_date, end_date = selected_dates
+            temp_date = pd.to_datetime(df_to_show['วันที่'], dayfirst=True, errors='coerce').dt.date
+            mask = (temp_date >= start_date) & (temp_date <= end_date)
+            df_to_show = df_to_show[mask]
+        else:
+            st.warning("กรุณาเลือกวันเริ่มต้น และ วันสิ้นสุด ให้ครบ 2 วันครับ")
+            
+    st.info("💡 **วิธีใช้งาน:** ดับเบิลคลิกที่ช่องเพื่อแก้ไขข้อมูล หรือคลิกเลือกแถวเพื่อลบได้ เมื่อแก้เสร็จแล้วให้กดปุ่ม **'ยืนยันการแก้ไข'** ด้านล่าง (กรณีต้องการแก้วันที่ ให้พิมพ์ในรูปแบบ วัน/เดือน/ปี เช่น 25/08/2026)")
+
+    if not df_to_show.empty:
         edited_df = st.data_editor(
-            df_current, 
+            df_to_show, 
             num_rows="dynamic", 
             use_container_width=True,
             column_config={
                 "เพศ": st.column_config.SelectboxColumn("เพศ", options=["ชาย", "หญิง"]),
-                "ประเภทบริการ": st.column_config.SelectboxColumn(
-                    "ประเภทบริการ",
-                    options=[
-                        "คัดกรองผู้ต้องขังเข้าใหม่", "ผู้ต้องขังรายเก่าที่ได้รับการคัดกรองซ้ำ",
-                        "ให้บริการตรวจรักษาในเรือนจำ", "ตรวจผ่านระบบ Telepsychiatry",
-                        "การบริการคลินิกคลายเครียดให้การปรึกษา", "เฝ้าระวังผู้ต้องขังมีพฤติกรรมเสี่ยงฆ่าตัวตาย",
-                        "ฆ่าตัวตายไม่สำเร็จ", "ฆ่าตัวตายสำเร็จ", "อบรมผู้ต้องขังช่วยเหลืองานด้านสุขภาพจิต"
-                    ]
-                ),
-                "ผลประเมิน": st.column_config.SelectboxColumn(
-                    "ผลประเมิน",
-                    options=[
-                        "ปกติ", "พบความผิดปกติ", "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา",
-                        "รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช", "ส่งต่อไปรับการรักษานอกเรือนจำ",
-                        "โรงพยาบาลรับเป็นผู้ป่วยใน (admit)"
-                    ]
-                ),
-                "สถานะติดตาม": st.column_config.SelectboxColumn(
-                    "สถานะติดตาม",
-                    options=["รอดำเนินการ", "ติดตามแล้ว", "ติดตามต่อ", "ปิดเคส", "บันทึกครั้งใหม่แล้ว"]
-                )
+                "ประเภทบริการ": st.column_config.SelectboxColumn("ประเภทบริการ", options=[
+                    "คัดกรองผู้ต้องขังเข้าใหม่", "ผู้ต้องขังรายเก่าที่ได้รับการคัดกรองซ้ำ",
+                    "ให้บริการตรวจรักษาในเรือนจำ", "ตรวจผ่านระบบ Telepsychiatry",
+                    "การบริการคลินิกคลายเครียดให้การปรึกษา", "เฝ้าระวังผู้ต้องขังมีพฤติกรรมเสี่ยงฆ่าตัวตาย",
+                    "ฆ่าตัวตายไม่สำเร็จ", "ฆ่าตัวตายสำเร็จ", "อบรมผู้ต้องขังช่วยเหลืองานด้านสุขภาพจิต"
+                ]),
+                "ผลประเมิน": st.column_config.SelectboxColumn("ผลประเมิน", options=[
+                    "ปกติ", "พบความผิดปกติ", "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา",
+                    "รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช", "ส่งต่อไปรับการรักษานอกเรือนจำ", "โรงพยาบาลรับเป็นผู้ป่วยใน (admit)"
+                ]),
+                "สถานะติดตาม": st.column_config.SelectboxColumn("สถานะติดตาม", options=["รอดำเนินการ", "ติดตามแล้ว", "ติดตามต่อ", "ปิดเคส", "บันทึกครั้งใหม่แล้ว"])
             }
         )
         
         if st.button("💾 ยืนยันการแก้ไขและบันทึกลงฐานข้อมูล"):
-            edited_df = edited_df.reset_index(drop=True) 
-            st.session_state['patient_data'] = edited_df
-            conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=edited_df)
+            main_df = st.session_state['patient_data'].copy()
+            deleted_idx = set(df_to_show.index) - set(edited_df.index)
+            main_df = main_df.drop(index=deleted_idx)
+            
+            existing_idx = edited_df.index[edited_df.index.isin(main_df.index)]
+            main_df.loc[existing_idx] = edited_df.loc[existing_idx]
+            
+            added_df = edited_df[~edited_df.index.isin(main_df.index)]
+            if not added_df.empty:
+                main_df = pd.concat([main_df, added_df], ignore_index=True)
+                
+            main_df = main_df.reset_index(drop=True)
+            st.session_state['patient_data'] = main_df
+            conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=main_df)
             st.success("✅ บันทึกการแก้ไขทั้งหมดลง Google Sheets เรียบร้อยแล้ว!")
             st.rerun()
     else:
-        st.dataframe(df_current, use_container_width=True)
+        if filter_mode == "แสดงข้อมูลทั้งหมด":
+            st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
+        else:
+            st.warning("ไม่พบข้อมูลในช่วงวันที่เลือก")
 
     # ================= ส่วนแจ้งเตือนติดตามผู้ป่วย =================
     st.markdown("---")
     st.subheader("🔔 แจ้งเตือนเคสที่ต้องติดตามต่อ")
-    if not df_current.empty:
-        to_follow_up = st.session_state['patient_data'][st.session_state['patient_data']['สถานะติดตาม'] == 'ติดตามต่อ']
+    main_db = st.session_state['patient_data']
+    if not main_db.empty:
+        to_follow_up = main_db[main_db['สถานะติดตาม'] == 'ติดตามต่อ']
         if not to_follow_up.empty:
             for idx, row in to_follow_up.iterrows():
-                date_str = row['วันที่นัดติดตาม'] if pd.notna(row['วันที่นัดติดตาม']) and row['วันที่นัดติดตาม'] != "" else "ไม่ได้ระบุวัน"
+                date_str = row['วันที่นัดติดตาม'] if pd.notna(row['วันที่นัดติดตาม']) and str(row['วันที่นัดติดตาม']).strip() != "" else "ไม่ได้ระบุวัน"
                 st.warning(f"📅 **นัดติดตามอาการ:** {row.get('ชื่อ-สกุล', '')} (แดน: {row['แดน/ห้อง']}) — นัดหมายวันที่: **{date_str}**")
         else:
             st.info("🎉 ปัจจุบันไม่มีเคสที่ค้างการติดตาม")
@@ -245,12 +261,8 @@ with tab1:
     st.markdown("---")
     st.subheader("🚨 ระบบอัปเดตสถานะผู้ป่วย")
     
-    if not df_current.empty:
-        abnormal_patients = st.session_state['patient_data'][
-            (st.session_state['patient_data']['ผลประเมิน'].astype(str).str.contains("พบความผิดปกติ", na=False)) &
-            (st.session_state['patient_data']['สถานะติดตาม'] != "บันทึกครั้งใหม่แล้ว")
-        ]
-        
+    if not main_db.empty:
+        abnormal_patients = main_db[(main_db['ผลประเมิน'].astype(str).str.contains("พบความผิดปกติ", na=False)) & (main_db['สถานะติดตาม'] != "บันทึกครั้งใหม่แล้ว")]
         if not abnormal_patients.empty:
             for idx, row in abnormal_patients.iterrows():
                 status_icon = "🟢" if row['สถานะติดตาม'] == "ปิดเคส" else ("🟡" if row['สถานะติดตาม'] == "ติดตามต่อ" else "🔴")
@@ -258,75 +270,53 @@ with tab1:
                 with st.expander(f"{status_icon} อัปเดตอาการ: {row.get('ชื่อ-สกุล', '')} [สถานะ: {row['สถานะติดตาม']}]"):
                     st.write(f"**วันที่รับบริการล่าสุด:** {row['วันที่']} | **เข้ารับบริการครั้งที่:** {row['ครั้งที่']}")
                     
-                    valid_srv_options = [
-                        "คัดกรองผู้ต้องขังเข้าใหม่", "ผู้ต้องขังรายเก่าที่ได้รับการคัดกรองซ้ำ",
-                        "ให้บริการตรวจรักษาในเรือนจำ", "ตรวจผ่านระบบ Telepsychiatry",
-                        "การบริการคลินิกคลายเครียดให้การปรึกษา", "เฝ้าระวังผู้ต้องขังมีพฤติกรรมเสี่ยงฆ่าตัวตาย",
-                        "ฆ่าตัวตายไม่สำเร็จ", "ฆ่าตัวตายสำเร็จ", "อบรมผู้ต้องขังช่วยเหลืองานด้านสุขภาพจิต"
-                    ]
+                    valid_srv_options = ["คัดกรองผู้ต้องขังเข้าใหม่", "ผู้ต้องขังรายเก่าที่ได้รับการคัดกรองซ้ำ", "ให้บริการตรวจรักษาในเรือนจำ", "ตรวจผ่านระบบ Telepsychiatry", "การบริการคลินิกคลายเครียดให้การปรึกษา", "เฝ้าระวังผู้ต้องขังมีพฤติกรรมเสี่ยงฆ่าตัวตาย", "ฆ่าตัวตายไม่สำเร็จ", "ฆ่าตัวตายสำเร็จ", "อบรมผู้ต้องขังช่วยเหลืองานด้านสุขภาพจิต"]
                     old_srv = [s.strip() for s in str(row.get('ประเภทบริการ', '')).split(",")]
-                    default_srv = [s for s in old_srv if s in valid_srv_options]
-                    new_service_list = st.multiselect("ประเภทการเข้ารับบริการ (ครั้งนี้)", valid_srv_options, default=default_srv, key=f"srv_{idx}")
-                    new_service_str = ", ".join(new_service_list) if new_service_list else "ไม่ได้ระบุ"
-
+                    new_service_list = st.multiselect("ประเภทการเข้ารับบริการ (ครั้งนี้)", valid_srv_options, default=[s for s in old_srv if s in valid_srv_options], key=f"srv_{idx}")
+                    
                     valid_res_options = ["ปกติ", "พบความผิดปกติ", "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา", "รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช", "ส่งต่อไปรับการรักษานอกเรือนจำ", "โรงพยาบาลรับเป็นผู้ป่วยใน (admit)"]
                     old_res = [r.strip() for r in str(row.get('ผลประเมิน', '')).split(",")]
-                    default_res = [r for r in old_res if r in valid_res_options]
-                    new_result_list = st.multiselect("ผลประเมิน (อัปเดตล่าสุด)", valid_res_options, default=default_res, key=f"res_{idx}")
-                    new_result_str = ", ".join(new_result_list) if new_result_list else "ไม่ได้ระบุ"
-
+                    new_result_list = st.multiselect("ผลประเมิน (อัปเดตล่าสุด)", valid_res_options, default=[r for r in old_res if r in valid_res_options], key=f"res_{idx}")
+                    
                     status_options = ["รอดำเนินการ", "ติดตามแล้ว", "ติดตามต่อ", "ปิดเคส"]
                     current_status = row['สถานะติดตาม'] if pd.notna(row['สถานะติดตาม']) and row['สถานะติดตาม'] != "" else "รอดำเนินการ"
-                    status_idx = status_options.index(current_status) if current_status in status_options else 0
-                    new_status = st.selectbox("สถานะการติดตาม", status_options, index=status_idx, key=f"status_{idx}")
+                    new_status = st.selectbox("สถานะการติดตาม", status_options, index=status_options.index(current_status) if current_status in status_options else 0, key=f"status_{idx}")
                     
                     new_date_str = row['วันที่นัดติดตาม']
                     if new_status == "ติดตามต่อ":
-                        parsed_date = datetime.now().date()
-                        if pd.notna(row['วันที่นัดติดตาม']) and str(row['วันที่นัดติดตาม']).strip() != "":
-                            try:
-                                parsed_date = datetime.strptime(str(row['วันที่นัดติดตาม']), "%Y-%m-%d").date()
-                            except ValueError:
-                                pass
-                        
-                        selected_date = st.date_input("ระบุวันที่นัดติดตามครั้งต่อไป", value=parsed_date, key=f"date_{idx}")
-                        new_date_str = selected_date.strftime("%Y-%m-%d")
+                        parsed_date = datetime.strptime(str(row['วันที่นัดติดตาม']), "%Y-%m-%d").date() if pd.notna(row['วันที่นัดติดตาม']) and str(row['วันที่นัดติดตาม']).strip() != "" else datetime.now().date()
+                        new_date_str = st.date_input("ระบุวันที่นัดติดตามครั้งต่อไป", value=parsed_date, key=f"date_{idx}").strftime("%Y-%m-%d")
                     else:
                         new_date_str = "" 
                     
-                    current_note = row['บันทึกติดตาม'] if pd.notna(row['บันทึกติดตาม']) else ""
-                    new_note = st.text_area("บันทึกความคืบหน้าของอาการ:", value=current_note, key=f"note_{idx}")
+                    new_note = st.text_area("บันทึกความคืบหน้าของอาการ:", value=row['บันทึกติดตาม'] if pd.notna(row['บันทึกติดตาม']) else "", key=f"note_{idx}")
                     
-                    next_visit_num = 2
-                    if pd.notna(row['ครั้งที่']) and str(row['ครั้งที่']).strip() != "":
-                        try:
-                            next_visit_num = int(float(row['ครั้งที่'])) + 1
-                        except ValueError:
-                            pass
-                    
+                    next_visit_num = int(float(row['ครั้งที่'])) + 1 if pd.notna(row['ครั้งที่']) and str(row['ครั้งที่']).strip() != "" else 2
                     create_new_visit = st.checkbox(f"✅ บันทึกเป็นประวัติการเข้ารับบริการครั้งใหม่ (ปรับเป็นครั้งที่ {next_visit_num})", value=True, key=f"new_visit_{idx}")
+                    
+                    # เพิ่มให้สามารถเลือกวันที่รับบริการย้อนหลังได้ กรณีบันทึกเป็นประวัติครั้งใหม่
+                    if create_new_visit:
+                        record_date_update = st.date_input("📅 วันที่รับบริการ (สำหรับการบันทึกประวัติครั้งใหม่)", value=datetime.now(), key=f"new_date_{idx}")
                     
                     if st.button("💾 บันทึกอัปเดต", key=f"save_note_{idx}"):
                         if create_new_visit:
                             st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = "บันทึกครั้งใหม่แล้ว"
-                            
                             new_row = row.to_dict()
-                            new_row['วันที่'] = datetime.now().strftime("%d/%m/%Y %H:%M")
-                            new_row['ครั้งที่'] = next_visit_num
-                            new_row['ประเภทบริการ'] = new_service_str
-                            new_row['ผลประเมิน'] = new_result_str
-                            new_row['บันทึกติดตาม'] = new_note
-                            new_row['สถานะติดตาม'] = new_status
-                            new_row['วันที่นัดติดตาม'] = new_date_str
                             
-                            new_df = pd.DataFrame([new_row])
-                            st.session_state['patient_data'] = pd.concat([st.session_state['patient_data'], new_df], ignore_index=True)
+                            # ใช้วันที่ตามที่เลือกในปฏิทินอัปเดต
+                            update_formatted_date = record_date_update.strftime("%d/%m/%Y") + datetime.now().strftime(" %H:%M")
+                            new_row.update({
+                                "วันที่": update_formatted_date, 
+                                "ครั้งที่": next_visit_num, 
+                                "ประเภทบริการ": ", ".join(new_service_list), 
+                                "ผลประเมิน": ", ".join(new_result_list), 
+                                "บันทึกติดตาม": new_note, 
+                                "สถานะติดตาม": new_status, 
+                                "วันที่นัดติดตาม": new_date_str
+                            })
+                            st.session_state['patient_data'] = pd.concat([st.session_state['patient_data'], pd.DataFrame([new_row])], ignore_index=True)
                         else:
-                            st.session_state['patient_data'].at[idx, 'ประเภทบริการ'] = new_service_str
-                            st.session_state['patient_data'].at[idx, 'ผลประเมิน'] = new_result_str
-                            st.session_state['patient_data'].at[idx, 'บันทึกติดตาม'] = new_note
-                            st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = new_status
-                            st.session_state['patient_data'].at[idx, 'วันที่นัดติดตาม'] = new_date_str
+                            st.session_state['patient_data'].loc[idx, ['ประเภทบริการ', 'ผลประเมิน', 'บันทึกติดตาม', 'สถานะติดตาม', 'วันที่นัดติดตาม']] = [", ".join(new_service_list), ", ".join(new_result_list), new_note, new_status, new_date_str]
                         
                         conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=st.session_state['patient_data'])
                         st.success("บันทึกการติดตามเรียบร้อยแล้ว!")
@@ -336,7 +326,7 @@ with tab1:
 
 # ================= TAB 2: สรุปรายงาน สจ.21 =================
 with tab2:
-    st.subheader("⚙️ ตั้งค่ารายงาน (ข้อมูลส่วนหัวและส่วนท้าย)")
+    st.subheader("⚙️ ตั้งค่ารายงานประจำเดือน (ดึงข้อมูลเฉพาะเดือนที่เลือก)")
     
     col_m, col_y, col_d = st.columns(3)
     with col_m:
@@ -346,7 +336,7 @@ with tab2:
         current_year_th = datetime.now().year + 543
         report_year = st.number_input("ปี (พ.ศ.)", value=current_year_th, step=1)
     with col_d:
-        report_date = st.date_input("ข้อมูล ณ วันที่", datetime.now())
+        report_date = st.date_input("ข้อมูล ณ วันที่พิมพ์รายงาน", datetime.now())
         
     col_act1, col_act2 = st.columns([3, 1])
     with col_act1:
@@ -356,23 +346,32 @@ with tab2:
         
     problems = st.text_area("4. ปัญหาและอุปสรรคที่พบ (ถ้ามี)", placeholder="พิมพ์ปัญหาหรืออุปสรรคที่นี่...")
 
-    df = st.session_state['patient_data']
+    full_df = st.session_state['patient_data'].copy()
     
+    target_month_num = months_th.index(report_month) + 1
+    target_year_gregorian = report_year - 543
+    
+    temp_date = pd.to_datetime(full_df['วันที่'], dayfirst=True, errors='coerce')
+    mask = (temp_date.dt.month == target_month_num) & (temp_date.dt.year == target_year_gregorian)
+    
+    df_report = full_df[mask]
+
     def count_data(service_kw="", result_kw="", gender=""):
-        mask = pd.Series(True, index=df.index)
-        if gender: mask = mask & (df.get('เพศ', '') == gender)
-        if service_kw: mask = mask & df.get('ประเภทบริการ', pd.Series(dtype=str)).astype(str).str.contains(service_kw, na=False)
-        if result_kw: mask = mask & df.get('ผลประเมิน', pd.Series(dtype=str)).astype(str).str.contains(result_kw, na=False)
+        mask = pd.Series(True, index=df_report.index)
+        if gender: mask = mask & (df_report.get('เพศ', '') == gender)
+        if service_kw: mask = mask & df_report.get('ประเภทบริการ', pd.Series(dtype=str)).astype(str).str.contains(service_kw, na=False)
+        if result_kw: mask = mask & df_report.get('ผลประเมิน', pd.Series(dtype=str)).astype(str).str.contains(result_kw, na=False)
         return mask.sum()
 
     def count_unique_person(service_kw, gender):
-        if 'เพศ' not in df.columns or 'ประเภทบริการ' not in df.columns or 'ชื่อ-สกุล' not in df.columns: return 0
-        filtered_df = df[(df['เพศ'] == gender) & (df['ประเภทบริการ'].astype(str).str.contains(service_kw, na=False))]
+        if 'เพศ' not in df_report.columns or 'ประเภทบริการ' not in df_report.columns or 'ชื่อ-สกุล' not in df_report.columns: return 0
+        filtered_df = df_report[(df_report['เพศ'] == gender) & (df_report['ประเภทบริการ'].astype(str).str.contains(service_kw, na=False))]
         return filtered_df['ชื่อ-สกุล'].nunique()
 
-    if not df.empty:
-        st.markdown("---")
-        st.subheader("📊 หน้าตาของตารางรายงานที่จะถูกสร้าง")
+    st.markdown("---")
+    st.subheader(f"📊 สรุปตัวเลขรายงาน สจ.21 ประจำเดือน {report_month} {report_year}")
+    
+    if not df_report.empty:
         summary_data = {
             "รายการ (ตาม สจ.21)": [
                 "1. คัดกรองผู้ต้องขังเข้าใหม่", " - พบความผิดปกติ (เข้าใหม่)", " - ได้รับการดูแลรักษา (เข้าใหม่)",
@@ -453,7 +452,7 @@ with tab2:
             output_excel = io.BytesIO()
             with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
                 summary_df.to_excel(writer, index=False, sheet_name='สรุปรายงาน_สจ21')
-                df.to_excel(writer, index=False, sheet_name='ข้อมูลดิบ')
+                df_report.to_excel(writer, index=False, sheet_name='ข้อมูลดิบ')
             st.download_button("📥 ดาวน์โหลด Excel", data=output_excel.getvalue(), file_name=f"Report_Sj21_{report_month}.xlsx")
             
         with col_btn2:
@@ -464,4 +463,4 @@ with tab2:
                 st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF: {e}")
                 
     else:
-        st.info("ยังไม่มีข้อมูล กรุณาบันทึกข้อมูลในแท็บ 'บันทึกข้อมูลรายบุคคล' ก่อนครับ")
+        st.info(f"ไม่มีข้อมูลการรับบริการในเดือน **{report_month} {report_year}** ครับ")
