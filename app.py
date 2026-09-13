@@ -109,7 +109,7 @@ with tab1:
             else:
                 st.error("⚠️ กรุณากรอกชื่อและนามสกุล")
 
-    # ================= ส่วนตารางที่แก้ไขได้ (Interactive Data Editor) =================
+    # ================= ส่วนตารางที่แก้ไขได้ =================
     st.markdown("---")
     st.subheader("📋 ตารางข้อมูลปัจจุบัน (สามารถแก้ไขข้อมูลในตารางได้โดยตรง)")
     st.info("💡 **วิธีใช้งาน:** ดับเบิลคลิกที่ช่องเพื่อพิมพ์แก้ไขหรือเลือก Drop-down และสามารถคลิกเลือกแถวเพื่อลบข้อมูลได้ เมื่อแก้เสร็จแล้วให้กดปุ่ม **'ยืนยันการแก้ไข'** ด้านล่าง")
@@ -117,7 +117,6 @@ with tab1:
     df_current = st.session_state['patient_data']
     
     if not df_current.empty:
-        # ใช้ st.data_editor และตั้งค่าคอลัมน์ให้เป็น Dropdown (Selectbox)
         edited_df = st.data_editor(
             df_current, 
             num_rows="dynamic", 
@@ -148,7 +147,6 @@ with tab1:
             }
         )
         
-        # ปุ่มยืนยันการเซฟข้อมูลที่แก้กลับไปที่ Google Sheets
         if st.button("💾 ยืนยันการแก้ไขและบันทึกลงฐานข้อมูล"):
             st.session_state['patient_data'] = edited_df
             conn.update(spreadsheet=SPREADSHEET_URL, worksheet="Sheet1", data=edited_df)
@@ -174,7 +172,6 @@ with tab1:
     st.subheader("🚨 ระบบอัปเดตสถานะผู้ป่วย")
     
     if not df_current.empty:
-        # ดึงเฉพาะคนที่พบความผิดปกติ และ สถานะยังไม่ใช่ "บันทึกครั้งใหม่แล้ว"
         abnormal_patients = st.session_state['patient_data'][
             (st.session_state['patient_data']['ผลประเมิน'].astype(str).str.contains("พบความผิดปกติ", na=False)) &
             (st.session_state['patient_data']['สถานะติดตาม'] != "บันทึกครั้งใหม่แล้ว")
@@ -187,20 +184,32 @@ with tab1:
                 with st.expander(f"{status_icon} อัปเดตอาการ: {row['ชื่อ']} {row['นามสกุล']} [สถานะ: {row['สถานะติดตาม']}]"):
                     st.write(f"**วันที่รับบริการล่าสุด:** {row['วันที่']} | **เข้ารับบริการครั้งที่:** {row['ครั้งที่']}")
                     
-                    # 1. อัปเดตผลประเมิน (กรณีอาการดีขึ้น สามารถลบพบความผิดปกติออกได้)
-                    valid_options = ["ปกติ", "พบความผิดปกติ", "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา", "รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช", "ส่งต่อไปรับการรักษานอกเรือนจำ", "โรงพยาบาลรับเป็นผู้ป่วยใน (admit)"]
+                    # 1. อัปเดต "ประเภทการเข้ารับบริการ"
+                    valid_srv_options = [
+                        "คัดกรองผู้ต้องขังเข้าใหม่", "ผู้ต้องขังรายเก่าที่ได้รับการคัดกรองซ้ำ",
+                        "ให้บริการตรวจรักษาในเรือนจำ", "ตรวจผ่านระบบ Telepsychiatry",
+                        "การบริการคลินิกคลายเครียดให้การปรึกษา", "เฝ้าระวังผู้ต้องขังมีพฤติกรรมเสี่ยงฆ่าตัวตาย",
+                        "ฆ่าตัวตายไม่สำเร็จ", "ฆ่าตัวตายสำเร็จ", "อบรมผู้ต้องขังช่วยเหลืองานด้านสุขภาพจิต"
+                    ]
+                    old_srv = [s.strip() for s in str(row.get('ประเภทบริการ', '')).split(",")]
+                    default_srv = [s for s in old_srv if s in valid_srv_options]
+                    new_service_list = st.multiselect("ประเภทการเข้ารับบริการ (ครั้งนี้)", valid_srv_options, default=default_srv, key=f"srv_{idx}")
+                    new_service_str = ", ".join(new_service_list) if new_service_list else "ไม่ได้ระบุ"
+
+                    # 2. อัปเดต "ผลประเมิน"
+                    valid_res_options = ["ปกติ", "พบความผิดปกติ", "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา", "รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช", "ส่งต่อไปรับการรักษานอกเรือนจำ", "โรงพยาบาลรับเป็นผู้ป่วยใน (admit)"]
                     old_res = [r.strip() for r in str(row.get('ผลประเมิน', '')).split(",")]
-                    default_res = [r for r in old_res if r in valid_options]
-                    new_result_list = st.multiselect("ผลประเมิน (อัปเดตล่าสุด)", valid_options, default=default_res, key=f"res_{idx}")
+                    default_res = [r for r in old_res if r in valid_res_options]
+                    new_result_list = st.multiselect("ผลประเมิน (อัปเดตล่าสุด)", valid_res_options, default=default_res, key=f"res_{idx}")
                     new_result_str = ", ".join(new_result_list) if new_result_list else "ไม่ได้ระบุ"
 
-                    # 2. เลือกสถานะ
+                    # 3. เลือกสถานะ
                     status_options = ["รอดำเนินการ", "ติดตามแล้ว", "ติดตามต่อ", "ปิดเคส"]
                     current_status = row['สถานะติดตาม'] if pd.notna(row['สถานะติดตาม']) else "รอดำเนินการ"
                     status_idx = status_options.index(current_status) if current_status in status_options else 0
                     new_status = st.selectbox("สถานะการติดตาม", status_options, index=status_idx, key=f"status_{idx}")
                     
-                    # 3. เลือกวันนัด
+                    # 4. เลือกวันนัด
                     new_date_str = row['วันที่นัดติดตาม']
                     if new_status == "ติดตามต่อ":
                         parsed_date = datetime.now().date()
@@ -215,11 +224,11 @@ with tab1:
                     else:
                         new_date_str = "" 
                     
-                    # 4. บันทึกข้อความ
+                    # 5. บันทึกข้อความ
                     current_note = row['บันทึกติดตาม'] if pd.notna(row['บันทึกติดตาม']) else ""
                     new_note = st.text_area("บันทึกความคืบหน้าของอาการ:", value=current_note, key=f"note_{idx}")
                     
-                    # 5. ตั้งค่าการบวกจำนวนครั้ง
+                    # 6. ตั้งค่าการบวกจำนวนครั้ง
                     next_visit_num = 2
                     if pd.notna(row['ครั้งที่']):
                         try:
@@ -231,13 +240,12 @@ with tab1:
                     
                     if st.button("💾 บันทึกอัปเดต", key=f"save_note_{idx}"):
                         if create_new_visit:
-                            # ซ่อนประวัติเก่าโดยเปลี่ยนสถานะ
                             st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = "บันทึกครั้งใหม่แล้ว"
                             
-                            # สร้างประวัติใหม่
                             new_row = row.copy()
                             new_row['วันที่'] = datetime.now().strftime("%d/%m/%Y %H:%M")
                             new_row['ครั้งที่'] = next_visit_num
+                            new_row['ประเภทบริการ'] = new_service_str
                             new_row['ผลประเมิน'] = new_result_str
                             new_row['บันทึกติดตาม'] = new_note
                             new_row['สถานะติดตาม'] = new_status
@@ -245,7 +253,7 @@ with tab1:
                             
                             st.session_state['patient_data'].loc[len(st.session_state['patient_data'])] = new_row
                         else:
-                            # ถ้าไม่ติ๊ก จะแก้แค่ข้อมูลเดิม
+                            st.session_state['patient_data'].at[idx, 'ประเภทบริการ'] = new_service_str
                             st.session_state['patient_data'].at[idx, 'ผลประเมิน'] = new_result_str
                             st.session_state['patient_data'].at[idx, 'บันทึกติดตาม'] = new_note
                             st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = new_status
