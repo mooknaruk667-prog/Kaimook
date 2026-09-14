@@ -411,10 +411,20 @@ with tab2:
         col_btn1, col_btn2 = st.columns(2)
         
         with col_btn1:
+            # 1. ทำสำเนาข้อมูลเพื่อเตรียมส่งออก
+            export_summary_df = summary_df.copy()
+            export_raw_df = df_report.copy()
+            
+            # 2. แทรกคอลัมน์ "ลำดับ" ไว้ที่ตำแหน่งแรก (index 0)
+            export_summary_df.insert(0, 'ลำดับ', range(1, len(export_summary_df) + 1))
+            export_raw_df.insert(0, 'ลำดับ', range(1, len(export_raw_df) + 1))
+            
+            # 3. บันทึกลง Excel
             output_excel = io.BytesIO()
             with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
-                summary_df.to_excel(writer, index=False, sheet_name='สรุปรายงาน_สจ21')
-                df_report.to_excel(writer, index=False, sheet_name='ข้อมูลดิบ')
+                export_summary_df.to_excel(writer, index=False, sheet_name='สรุปรายงาน_สจ21')
+                export_raw_df.to_excel(writer, index=False, sheet_name='ข้อมูลดิบ')
+                
             st.download_button("📥 ดาวน์โหลด Excel", data=output_excel.getvalue(), file_name=f"Report_Sj21_{report_month}.xlsx")
             
         with col_btn2:
