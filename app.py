@@ -598,7 +598,7 @@ with tab2:
                 pdf.ln(5)
 
             # ==============================
-            # ตารางข้อมูล (ตัดคอลัมน์ปัญหาและอุปสรรคออก เพื่อเพิ่มความกว้างให้ช่องอื่น)
+            # ตารางข้อมูล
             # ==============================
             pdf.set_font("Sarabun", size=11)
             
@@ -649,24 +649,7 @@ with tab2:
             # ==============================
             pdf.ln(10)
             pdf.set_font("Sarabun", size=14)
-            pdf.cell(0, 8, "ปัญหาและอุปสรรคที่พบจากผู้รับบริการ:", ln=True)
-            pdf.set_font("Sarabun", size=12)
-            
-            has_prob = False
-            if not df_clinic.empty:
-                for _, row in df_clinic.iterrows():
-                    prob = str(row.get("ปัญหาและอุปสรรค", "")).strip()
-                    if prob:
-                        name = str(row.get("ชื่อ-สกุล", "")).strip()
-                        pdf.multi_cell(0, 6, txt=f"- {name} : {prob}")
-                        has_prob = True
-            
-            if not has_prob:
-                pdf.cell(0, 6, txt="- ไม่มี -", ln=True)
-                
-            pdf.ln(5)
-            pdf.set_font("Sarabun", size=14)
-            pdf.cell(0, 8, "ปัญหาและอุปสรรคการดำเนินงาน (ภาพรวมจากระบบรายงาน):", ln=True)
+            pdf.cell(0, 8, "ปัญหาและอุปสรรค:", ln=True)
             pdf.set_font("Sarabun", size=12)
             pdf.multi_cell(0, 6, txt=problems if problems.strip() else "- ไม่มี -")
                 
