@@ -507,7 +507,7 @@ with tab2:
             pdf.ln(15)
             pdf.set_font("Sarabun", size=14)
             pdf.cell(90) # ขยับไปฝั่งขวา
-            pdf.cell(100, 8, txt="เรียนผู้บังคับบัญชาการเรือนจำจังหวัดบุรีรัมย์", ln=True, align="C")
+            pdf.cell(100, 8, txt="เรียน ผู้บังคับบัญชาการเรือนจำจังหวัดบุรีรัมย์", ln=True, align="C")
             pdf.ln(24) # เว้นสามบรรทัด (8*3)
             pdf.cell(90)
             pdf.cell(100, 8, txt="นางสาวเดือนนภา เบี้ยชาติไทย", ln=True, align="C")
@@ -664,7 +664,7 @@ with tab2:
             pdf.ln(15)
             pdf.set_font("Sarabun", size=14)
             pdf.cell(177) # ขยับไปฝั่งขวา (หน้ากว้าง 297 ขอบ 10 = 277 ลบ 100 เหลือ 177)
-            pdf.cell(100, 8, txt="เรียนผู้บังคับบัญชาการเรือนจำจังหวัดบุรีรัมย์", ln=True, align="C")
+            pdf.cell(100, 8, txt="เรียน ผู้บังคับบัญชาการเรือนจำจังหวัดบุรีรัมย์", ln=True, align="C")
             pdf.ln(24) # เว้นสามบรรทัด (8*3)
             pdf.cell(177)
             pdf.cell(100, 8, txt="นางสาวเดือนนภา เบี้ยชาติไทย", ln=True, align="C")
