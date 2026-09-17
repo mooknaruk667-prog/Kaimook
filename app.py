@@ -56,7 +56,6 @@ def load_data():
                 df = df.rename(columns={'บันทึกติดตาม': 'บันทึกอาการ'})
                 needs_update = True
                 
-            # ตรวจสอบคอลัมน์ใหม่ที่เพิ่มเข้ามา
             cols = ["วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "ห้อง", "คดี", "ครั้งที่", "ประเภทบริการ", "ผลประเมิน", "บันทึกอาการ", "ปัญหาและอุปสรรค", "สถานะติดตาม", "วันที่นัดติดตาม"]
             for c in cols:
                 if c not in df.columns:
@@ -335,7 +334,6 @@ with tab1:
                     if "อื่นๆ (ให้ระบุ)" in selected_symptoms:
                         other_note = st.text_input("ระบุอาการอื่นๆ / รายละเอียดเพิ่มเติม:", value=other_existing_str, key=f"other_note_{idx}")
                         
-                    # เพิ่มช่องปัญหาและอุปสรรคในการอัปเดต
                     new_prob = st.text_input("ปัญหาและอุปสรรคที่พบ:", value=row.get('ปัญหาและอุปสรรค', ''), key=f"prob_{idx}")
                     
                     next_visit_num = int(float(row['ครั้งที่'])) + 1 if pd.notna(row['ครั้งที่']) and str(row['ครั้งที่']).strip() != "" else 2
@@ -599,11 +597,13 @@ with tab2:
             else:
                 pdf.ln(5)
 
+            # ==============================
+            # ตารางข้อมูล (ตัดคอลัมน์ปัญหาและอุปสรรคออก เพื่อเพิ่มความกว้างให้ช่องอื่น)
+            # ==============================
             pdf.set_font("Sarabun", size=11)
             
-            # --- อัปเดตตารางให้มีคอลัมน์ปัญหาและอุปสรรค ---
-            w_no, w_date, w_name, w_gender, w_age = 10, 22, 40, 10, 10
-            w_room, w_visit, w_note, w_prob, w_next = 15, 12, 65, 60, 25
+            w_no, w_date, w_name, w_gender, w_age = 10, 22, 45, 12, 12
+            w_room, w_visit, w_note, w_next = 18, 15, 115, 30
             
             pdf.cell(w_no, 10, "ลำดับ", border=1, align="C")
             pdf.cell(w_date, 10, "วันที่", border=1, align="C")
@@ -613,14 +613,13 @@ with tab2:
             pdf.cell(w_room, 10, "ห้อง", border=1, align="C")
             pdf.cell(w_visit, 10, "ครั้งที่", border=1, align="C")
             pdf.cell(w_note, 10, "บันทึกอาการ", border=1, align="C")
-            pdf.cell(w_prob, 10, "ปัญหาและอุปสรรค", border=1, align="C")
             pdf.cell(w_next, 10, "วันที่นัด", border=1, align="C")
             pdf.ln()
 
             pdf.set_font("Sarabun", size=10)
             
             if df_clinic.empty:
-                total_width = w_no + w_date + w_name + w_gender + w_age + w_room + w_visit + w_note + w_prob + w_next
+                total_width = w_no + w_date + w_name + w_gender + w_age + w_room + w_visit + w_note + w_next
                 pdf.cell(total_width, 10, "ไม่มีข้อมูลผู้รับบริการคลินิกคลายเครียดในเดือนนี้", border=1, align="C")
                 pdf.ln()
             else:
@@ -641,10 +640,35 @@ with tab2:
                     pdf.cell(w_age, 8, trunc(age_str, 10), border=1, align="C")
                     pdf.cell(w_room, 8, trunc(row.get("ห้อง", ""), 12), border=1, align="C")
                     pdf.cell(w_visit, 8, trunc(visit_str, 10), border=1, align="C")
-                    pdf.cell(w_note, 8, trunc(row.get("บันทึกอาการ", ""), 35), border=1)
-                    pdf.cell(w_prob, 8, trunc(row.get("ปัญหาและอุปสรรค", ""), 35), border=1)
+                    pdf.cell(w_note, 8, trunc(row.get("บันทึกอาการ", ""), 65), border=1)
                     pdf.cell(w_next, 8, trunc(next_date_only, 15), border=1, align="C")
                     pdf.ln()
+                    
+            # ==============================
+            # แสดงปัญหาและอุปสรรค ใต้ตาราง
+            # ==============================
+            pdf.ln(10)
+            pdf.set_font("Sarabun", size=14)
+            pdf.cell(0, 8, "ปัญหาและอุปสรรคที่พบจากผู้รับบริการ:", ln=True)
+            pdf.set_font("Sarabun", size=12)
+            
+            has_prob = False
+            if not df_clinic.empty:
+                for _, row in df_clinic.iterrows():
+                    prob = str(row.get("ปัญหาและอุปสรรค", "")).strip()
+                    if prob:
+                        name = str(row.get("ชื่อ-สกุล", "")).strip()
+                        pdf.multi_cell(0, 6, txt=f"- {name} : {prob}")
+                        has_prob = True
+            
+            if not has_prob:
+                pdf.cell(0, 6, txt="- ไม่มี -", ln=True)
+                
+            pdf.ln(5)
+            pdf.set_font("Sarabun", size=14)
+            pdf.cell(0, 8, "ปัญหาและอุปสรรคการดำเนินงาน (ภาพรวมจากระบบรายงาน):", ln=True)
+            pdf.set_font("Sarabun", size=12)
+            pdf.multi_cell(0, 6, txt=problems if problems.strip() else "- ไม่มี -")
                 
             return bytes(pdf.output())
 
