@@ -33,19 +33,24 @@ def load_data():
         
         if df.empty or len(df.columns) == 0:
             df = pd.DataFrame(columns=[
-                "วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
+                "วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "ห้อง", "คดี", "ครั้งที่", 
                 "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
             ])
             conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=df)
         else:
             needs_update = False
+            
             if 'ชื่อ' in df.columns and 'นามสกุล' in df.columns:
                 df['ชื่อ-สกุล'] = df['ชื่อ'].astype(str) + " " + df['นามสกุล'].astype(str)
                 df['ชื่อ-สกุล'] = df['ชื่อ-สกุล'].str.strip()
                 df = df.drop(columns=['ชื่อ', 'นามสกุล'])
                 needs_update = True
                 
-            cols = ["วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"]
+            if 'แดน/ห้อง' in df.columns:
+                df = df.rename(columns={'แดน/ห้อง': 'ห้อง'})
+                needs_update = True
+                
+            cols = ["วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "ห้อง", "คดี", "ครั้งที่", "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"]
             for c in cols:
                 if c not in df.columns:
                     df[c] = ""
@@ -59,7 +64,7 @@ def load_data():
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets หลัก: {e}")
         return pd.DataFrame(columns=[
-            "วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "แดน/ห้อง", "คดี", "ครั้งที่", 
+            "วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "ห้อง", "คดี", "ครั้งที่", 
             "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
         ])
 
@@ -139,7 +144,7 @@ with tab1:
             gender_index = 0 if def_gender == "ชาย" else 1
             gender = st.radio("เพศ", ["ชาย", "หญิง"], index=gender_index, horizontal=True)
             age = st.number_input("อายุ (ปี)", min_value=15, max_value=100, step=1, value=def_age)
-            room = st.text_input("แดน / ห้อง")
+            room = st.text_input("ห้อง")
             
         with col2:
             case_type = st.text_input("ฐานความผิด / คดี", value=def_case)
@@ -183,13 +188,14 @@ with tab1:
                 service_type_str = ", ".join(service_type) if service_type else "ไม่ได้ระบุ"
                 result_str = ", ".join(result) if result else "ไม่ได้ระบุ"
                 
-                formatted_date = datetime.now().strftime("%d/%m/%Y %H:%M")
+                # เปลี่ยนให้บันทึกแค่วันที่ (ไม่มีเวลา)
+                formatted_date = datetime.now().strftime("%d/%m/%Y")
                 
                 new_data = {
                     "วันที่": formatted_date,
                     "ชื่อ-สกุล": full_name.strip(), 
                     "เพศ": gender, "อายุ": age,
-                    "แดน/ห้อง": room, "คดี": case_type, "ครั้งที่": visit_count,
+                    "ห้อง": room, "คดี": case_type, "ครั้งที่": visit_count,
                     "ประเภทบริการ": service_type_str, "ผลประเมิน": result_str,
                     "บันทึกติดตาม": "", "สถานะติดตาม": initial_status, "วันที่นัดติดตาม": ""
                 }
@@ -248,7 +254,7 @@ with tab1:
         if not to_follow_up.empty:
             for idx, row in to_follow_up.iterrows():
                 date_str = row['วันที่นัดติดตาม'] if pd.notna(row['วันที่นัดติดตาม']) and str(row['วันที่นัดติดตาม']).strip() != "" else "ไม่ได้ระบุวัน"
-                st.warning(f"📅 **นัดติดตามอาการ:** {row.get('ชื่อ-สกุล', '')} (แดน: {row['แดน/ห้อง']}) — นัดหมายวันที่: **{date_str}**")
+                st.warning(f"📅 **นัดติดตามอาการ:** {row.get('ชื่อ-สกุล', '')} (ห้อง: {row.get('ห้อง', '')}) — นัดหมายวันที่: **{date_str}**")
         else:
             st.info("🎉 ปัจจุบันไม่มีเคสที่ค้างการติดตาม")
 
@@ -313,7 +319,8 @@ with tab1:
                             st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = "บันทึกครั้งใหม่แล้ว"
                             new_row = row.to_dict()
                             
-                            update_formatted_date = record_date_update.strftime("%d/%m/%Y") + datetime.now().strftime(" %H:%M")
+                            # เปลี่ยนให้บันทึกแค่วันที่ (ไม่มีเวลา) สำหรับติดตามด้วย
+                            update_formatted_date = record_date_update.strftime("%d/%m/%Y")
                             new_row.update({
                                 "วันที่": update_formatted_date, 
                                 "ครั้งที่": next_visit_num, 
@@ -357,6 +364,7 @@ with tab2:
 
     full_df = st.session_state['patient_data'].copy()
     
+    # แปลงวันที่สำหรับการกรอง โดยตัวมันเองจะรองรับทั้งแบบมีเวลาและไม่มีเวลาอยู่แล้ว
     target_month_num = months_th.index(report_month) + 1
     target_year_gregorian = report_year - 543
     
@@ -471,7 +479,6 @@ with tab2:
 
             pdf.set_font("Sarabun", size=12)
             
-            # กำหนดความกว้างคอลัมน์ รวม ~275 (A4 แนวนอนกว้าง 297 ลบขอบ 10 ซ้ายขวา)
             w_no, w_date, w_name, w_gender, w_room = 15, 30, 45, 15, 20
             w_service, w_result = 75, 75
             
@@ -480,7 +487,7 @@ with tab2:
             pdf.cell(w_date, 10, "วันที่", border=1, align="C")
             pdf.cell(w_name, 10, "ชื่อ-สกุล", border=1, align="C")
             pdf.cell(w_gender, 10, "เพศ", border=1, align="C")
-            pdf.cell(w_room, 10, "แดน", border=1, align="C")
+            pdf.cell(w_room, 10, "ห้อง", border=1, align="C")
             pdf.cell(w_service, 10, "ประเภทบริการ", border=1, align="C")
             pdf.cell(w_result, 10, "ผลประเมิน", border=1, align="C")
             pdf.ln()
@@ -492,11 +499,14 @@ with tab2:
                     s = str(t).replace('\n', ' ').strip()
                     return s[:l] + '..' if len(s) > l else s
                 
+                # ตัดข้อความเวลาทิ้งสำหรับข้อมูลเก่าที่ยังมีเวลาอยู่
+                date_only = str(row.get("วันที่", "")).split(" ")[0]
+                
                 pdf.cell(w_no, 8, str(i), border=1, align="C")
-                pdf.cell(w_date, 8, trunc(row.get("วันที่", ""), 16), border=1, align="C")
+                pdf.cell(w_date, 8, trunc(date_only, 16), border=1, align="C")
                 pdf.cell(w_name, 8, trunc(row.get("ชื่อ-สกุล", ""), 30), border=1)
                 pdf.cell(w_gender, 8, trunc(row.get("เพศ", ""), 10), border=1, align="C")
-                pdf.cell(w_room, 8, trunc(row.get("แดน/ห้อง", ""), 15), border=1, align="C")
+                pdf.cell(w_room, 8, trunc(row.get("ห้อง", ""), 15), border=1, align="C")
                 pdf.cell(w_service, 8, trunc(row.get("ประเภทบริการ", ""), 45), border=1)
                 pdf.cell(w_result, 8, trunc(row.get("ผลประเมิน", ""), 45), border=1)
                 pdf.ln()
@@ -529,4 +539,4 @@ with tab2:
                 st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF ข้อมูลดิบ: {e}")
                 
     else:
-        st.info(f"ไม่มีข้อมูลการรับบริการในเดือน **{report_month} {report_year}** ครับ")
+        st.info(f"ไม่มีข้อมูลการรับบริการในเดือน **{report_month} {report_year}** ครับ"
