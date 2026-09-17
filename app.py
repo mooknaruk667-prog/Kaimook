@@ -503,13 +503,13 @@ with tab2:
             pdf.set_font("Sarabun", size=14)
             pdf.multi_cell(0, 8, txt=problems if problems.strip() else "- ไม่มี -")
             
-            # --- รูปแบบลายเซ็น เสนอลงนาม ---
+            # --- รูปแบบลายเซ็น เสนอลงนาม (จัด "เพื่อโปรดทราบ" ตรงกับคำว่า "ผู้" ด้านบน) ---
             pdf.ln(15)
             pdf.set_font("Sarabun", size=14)
             pdf.cell(90) 
             pdf.cell(100, 8, txt="เรียน ผู้บังคับบัญชาการเรือนจำจังหวัดบุรีรัมย์", ln=True, align="C")
             pdf.cell(90) 
-            pdf.cell(100, 8, txt="เพื่อโปรดทราบ", ln=True, align="C")
+            pdf.cell(100, 8, txt="      เพื่อโปรดทราบ", ln=True, align="L") # เพิ่มช่องว่างข้างหน้าให้ตรงกับตัว "ผู้"
             pdf.ln(24) 
             pdf.cell(90)
             pdf.cell(100, 8, txt="นางสาวเดือนนภา เบี้ยชาติไทย", ln=True, align="C")
@@ -662,13 +662,13 @@ with tab2:
             pdf.set_font("Sarabun", size=12)
             pdf.multi_cell(0, 6, txt=problems if problems.strip() else "- ไม่มี -")
             
-            # --- รูปแบบลายเซ็น เสนอลงนาม ---
+            # --- รูปแบบลายเซ็น เสนอลงนาม (A4 แนวนอน) ---
             pdf.ln(15)
             pdf.set_font("Sarabun", size=14)
             pdf.cell(177) 
             pdf.cell(100, 8, txt="เรียน ผู้บังคับบัญชาการเรือนจำจังหวัดบุรีรัมย์", ln=True, align="C")
             pdf.cell(177) 
-            pdf.cell(100, 8, txt="เพื่อโปรดทราบ", ln=True, align="C")
+            pdf.cell(100, 8, txt="      เพื่อโปรดทราบ", ln=True, align="L")
             pdf.ln(24) 
             pdf.cell(177)
             pdf.cell(100, 8, txt="นางสาวเดือนนภา เบี้ยชาติไทย", ln=True, align="C")
