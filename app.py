@@ -364,7 +364,6 @@ with tab2:
 
     full_df = st.session_state['patient_data'].copy()
     
-    # แปลงวันที่สำหรับการกรอง โดยตัวมันเองจะรองรับทั้งแบบมีเวลาและไม่มีเวลาอยู่แล้ว
     target_month_num = months_th.index(report_month) + 1
     target_year_gregorian = report_year - 543
     
@@ -463,7 +462,7 @@ with tab2:
             
             return bytes(pdf.output())
 
-        # 2. ฟังก์ชันสร้างรายงานตารางข้อมูลดิบ
+        # 2. ฟังก์ชันสร้างรายงานตารางข้อมูลดิบ (แก้ไขคอลัมน์ตามคำขอ)
         def generate_raw_data_pdf():
             pdf = FPDF(orientation="L", unit="mm", format="A4") # แนวนอน
             pdf.add_page()
@@ -474,42 +473,61 @@ with tab2:
             else:
                 pdf.set_font("Arial", size=16)
 
-            pdf.cell(0, 10, f"รายงานคลินิกคลายเครียด ประจำเดือน{report_month} พ.ศ. {report_year}", ln=True, align="C")
+            pdf.cell(0, 10, f"รายชื่อผู้รับบริการคลินิกคลายเครียด ประจำเดือน{report_month} พ.ศ. {report_year}", ln=True, align="C")
             pdf.ln(5)
 
-            pdf.set_font("Sarabun", size=12)
+            # กำหนดขนาดฟอนต์ของตาราง
+            pdf.set_font("Sarabun", size=11)
             
-            w_no, w_date, w_name, w_gender, w_room = 15, 30, 45, 15, 20
-            w_service, w_result = 75, 75
+            # กำหนดความกว้างคอลัมน์ (รวมกันให้พอดีหน้า A4 แนวนอน ลบขอบแล้ว)
+            w_no, w_date, w_name, w_gender, w_age = 10, 22, 45, 12, 12
+            w_room, w_visit, w_note, w_next = 18, 15, 113, 30
             
-            # หัวตาราง
+            # หัวตาราง (เปลี่ยนชื่อคอลัมน์ บันทึกติดตาม เป็น บันทึกอาการ)
             pdf.cell(w_no, 10, "ลำดับ", border=1, align="C")
             pdf.cell(w_date, 10, "วันที่", border=1, align="C")
             pdf.cell(w_name, 10, "ชื่อ-สกุล", border=1, align="C")
             pdf.cell(w_gender, 10, "เพศ", border=1, align="C")
+            pdf.cell(w_age, 10, "อายุ", border=1, align="C")
             pdf.cell(w_room, 10, "ห้อง", border=1, align="C")
-            pdf.cell(w_service, 10, "ประเภทบริการ", border=1, align="C")
-            pdf.cell(w_result, 10, "ผลประเมิน", border=1, align="C")
+            pdf.cell(w_visit, 10, "ครั้งที่", border=1, align="C")
+            pdf.cell(w_note, 10, "บันทึกอาการ", border=1, align="C")
+            pdf.cell(w_next, 10, "วันที่นัด", border=1, align="C")
             pdf.ln()
 
-            # วนลูปข้อมูลดิบ
+            # --- กรองข้อมูลเฉพาะคนที่เลือก "คลินิกคลายเครียด" ---
+            df_clinic = df_report[df_report['ประเภทบริการ'].astype(str).str.contains('คลินิกคลายเครียด', na=False)]
+
             pdf.set_font("Sarabun", size=10)
-            for i, (index, row) in enumerate(df_report.iterrows(), start=1):
-                def trunc(t, l):
-                    s = str(t).replace('\n', ' ').strip()
-                    return s[:l] + '..' if len(s) > l else s
-                
-                # ตัดข้อความเวลาทิ้งสำหรับข้อมูลเก่าที่ยังมีเวลาอยู่
-                date_only = str(row.get("วันที่", "")).split(" ")[0]
-                
-                pdf.cell(w_no, 8, str(i), border=1, align="C")
-                pdf.cell(w_date, 8, trunc(date_only, 16), border=1, align="C")
-                pdf.cell(w_name, 8, trunc(row.get("ชื่อ-สกุล", ""), 30), border=1)
-                pdf.cell(w_gender, 8, trunc(row.get("เพศ", ""), 10), border=1, align="C")
-                pdf.cell(w_room, 8, trunc(row.get("ห้อง", ""), 15), border=1, align="C")
-                pdf.cell(w_service, 8, trunc(row.get("ประเภทบริการ", ""), 45), border=1)
-                pdf.cell(w_result, 8, trunc(row.get("ผลประเมิน", ""), 45), border=1)
+            
+            if df_clinic.empty:
+                # กรณีไม่มีข้อมูลในเดือนนั้น
+                total_width = w_no + w_date + w_name + w_gender + w_age + w_room + w_visit + w_note + w_next
+                pdf.cell(total_width, 10, "ไม่มีข้อมูลผู้รับบริการคลินิกคลายเครียดในเดือนนี้", border=1, align="C")
                 pdf.ln()
+            else:
+                # วนลูปข้อมูลดิบที่กรองแล้ว
+                for i, (index, row) in enumerate(df_clinic.iterrows(), start=1):
+                    def trunc(t, l):
+                        s = str(t).replace('\n', ' ').strip()
+                        return s[:l] + '..' if len(s) > l else s
+                    
+                    # ล้างข้อความให้สวยงามก่อนลง PDF
+                    date_only = str(row.get("วันที่", "")).split(" ")[0]
+                    next_date_only = str(row.get("วันที่นัดติดตาม", "")).split(" ")[0]
+                    age_str = str(row.get("อายุ", "")).replace(".0", "")
+                    visit_str = str(row.get("ครั้งที่", "")).replace(".0", "")
+                    
+                    pdf.cell(w_no, 8, str(i), border=1, align="C")
+                    pdf.cell(w_date, 8, trunc(date_only, 15), border=1, align="C")
+                    pdf.cell(w_name, 8, trunc(row.get("ชื่อ-สกุล", ""), 25), border=1)
+                    pdf.cell(w_gender, 8, trunc(row.get("เพศ", ""), 10), border=1, align="C")
+                    pdf.cell(w_age, 8, trunc(age_str, 10), border=1, align="C")
+                    pdf.cell(w_room, 8, trunc(row.get("ห้อง", ""), 12), border=1, align="C")
+                    pdf.cell(w_visit, 8, trunc(visit_str, 10), border=1, align="C")
+                    pdf.cell(w_note, 8, trunc(row.get("บันทึกติดตาม", ""), 65), border=1)
+                    pdf.cell(w_next, 8, trunc(next_date_only, 15), border=1, align="C")
+                    pdf.ln()
                 
             return bytes(pdf.output())
 
@@ -534,7 +552,7 @@ with tab2:
         with col_btn3:
             try:
                 pdf_raw_bytes = generate_raw_data_pdf()
-                st.download_button("📄 โหลด PDF (ข้อมูลดิบรายชื่อ)", data=pdf_raw_bytes, file_name=f"Report_RawData_{report_month}_{report_year}.pdf", mime="application/pdf")
+                st.download_button("📄 โหลด PDF (รายชื่อคลินิกคลายเครียด)", data=pdf_raw_bytes, file_name=f"Report_RawData_Clinic_{report_month}_{report_year}.pdf", mime="application/pdf")
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF ข้อมูลดิบ: {e}")
                 
