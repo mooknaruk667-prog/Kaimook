@@ -36,7 +36,7 @@ def load_data():
         if df.empty or len(df.columns) == 0:
             df = pd.DataFrame(columns=[
                 "วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "ห้อง", "คดี", "ครั้งที่", 
-                "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
+                "ประเภทบริการ", "ผลประเมิน", "บันทึกอาการ", "สถานะติดตาม", "วันที่นัดติดตาม"
             ])
             conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=df)
         else:
@@ -52,7 +52,12 @@ def load_data():
                 df = df.rename(columns={'แดน/ห้อง': 'ห้อง'})
                 needs_update = True
                 
-            cols = ["วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "ห้อง", "คดี", "ครั้งที่", "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"]
+            # เปลี่ยนชื่อคอลัมน์ บันทึกติดตาม เป็น บันทึกอาการ
+            if 'บันทึกติดตาม' in df.columns:
+                df = df.rename(columns={'บันทึกติดตาม': 'บันทึกอาการ'})
+                needs_update = True
+                
+            cols = ["วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "ห้อง", "คดี", "ครั้งที่", "ประเภทบริการ", "ผลประเมิน", "บันทึกอาการ", "สถานะติดตาม", "วันที่นัดติดตาม"]
             for c in cols:
                 if c not in df.columns:
                     df[c] = ""
@@ -67,7 +72,7 @@ def load_data():
         st.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets หลัก: {e}")
         return pd.DataFrame(columns=[
             "วันที่", "ชื่อ-สกุล", "เพศ", "อายุ", "ห้อง", "คดี", "ครั้งที่", 
-            "ประเภทบริการ", "ผลประเมิน", "บันทึกติดตาม", "สถานะติดตาม", "วันที่นัดติดตาม"
+            "ประเภทบริการ", "ผลประเมิน", "บันทึกอาการ", "สถานะติดตาม", "วันที่นัดติดตาม"
         ])
 
 if 'patient_data' not in st.session_state:
@@ -77,6 +82,9 @@ st.title("🏥 ระบบบันทึกข้อมูลคลินิ�
 st.markdown("ระบบออนไลน์ เชื่อมต่อฐานข้อมูล Cloud (ข้อมูลปลอดภัย 100%)")
 
 tab1, tab2 = st.tabs(["📝 บันทึกข้อมูลรายบุคคล", "📊 สรุปและออกรายงาน สจ.21"])
+
+# ตัวเลือกสำหรับบันทึกอาการ
+SYMPTOM_OPTIONS = ["เครียด", "เหนื่อยล้า", "ซึมเศร้า", "อยากตาย", "นอนไม่หลับ", "วิตกกังวล", "ปวดศีรษะ", "อื่นๆ (ให้ระบุ)"]
 
 # ================= TAB 1: บันทึกข้อมูล =================
 with tab1:
@@ -148,6 +156,12 @@ with tab1:
             age = st.number_input("อายุ (ปี)", min_value=15, max_value=100, step=1, value=def_age)
             room = st.text_input("ห้อง")
             
+            # --- Dropdown สำหรับบันทึกอาการ (การบันทึกใหม่) ---
+            symptoms = st.multiselect("บันทึกอาการ (เลือกได้หลายข้อ)", SYMPTOM_OPTIONS)
+            other_symptom = ""
+            if "อื่นๆ (ให้ระบุ)" in symptoms:
+                other_symptom = st.text_input("ระบุอาการอื่นๆ")
+            
         with col2:
             case_type = st.text_input("ฐานความผิด / คดี", value=def_case)
             visit_count = st.number_input("รับบริการครั้งที่", min_value=1, step=1)
@@ -190,7 +204,12 @@ with tab1:
                 service_type_str = ", ".join(service_type) if service_type else "ไม่ได้ระบุ"
                 result_str = ", ".join(result) if result else "ไม่ได้ระบุ"
                 
-                # เปลี่ยนให้บันทึกแค่วันที่ (ไม่มีเวลา)
+                # รวมข้อความอาการ
+                final_symptoms = [s for s in symptoms if s != "อื่นๆ (ให้ระบุ)"]
+                if other_symptom.strip():
+                    final_symptoms.append(other_symptom.strip())
+                symptom_str = ", ".join(final_symptoms)
+                
                 formatted_date = datetime.now().strftime("%d/%m/%Y")
                 
                 new_data = {
@@ -199,7 +218,7 @@ with tab1:
                     "เพศ": gender, "อายุ": age,
                     "ห้อง": room, "คดี": case_type, "ครั้งที่": visit_count,
                     "ประเภทบริการ": service_type_str, "ผลประเมิน": result_str,
-                    "บันทึกติดตาม": "", "สถานะติดตาม": initial_status, "วันที่นัดติดตาม": ""
+                    "บันทึกอาการ": symptom_str, "สถานะติดตาม": initial_status, "วันที่นัดติดตาม": ""
                 }
                 
                 new_df = pd.DataFrame([new_data])
@@ -294,7 +313,29 @@ with tab1:
                     else:
                         new_date_str = "" 
                     
-                    new_note = st.text_area("บันทึกความคืบหน้าของอาการ:", value=row['บันทึกติดตาม'] if pd.notna(row['บันทึกติดตาม']) else "", key=f"note_{idx}")
+                    # --- ดึงข้อมูลบันทึกอาการเดิมมาแยกประเภท ---
+                    existing_notes_raw = str(row.get('บันทึกอาการ', ''))
+                    existing_notes_list = [s.strip() for s in existing_notes_raw.split(",")] if existing_notes_raw else []
+                    
+                    default_symp = []
+                    other_existing_list = []
+                    for s in existing_notes_list:
+                        if s in SYMPTOM_OPTIONS:
+                            default_symp.append(s)
+                        elif s:
+                            other_existing_list.append(s)
+                            
+                    if other_existing_list and "อื่นๆ (ให้ระบุ)" not in default_symp:
+                        default_symp.append("อื่นๆ (ให้ระบุ)")
+                        
+                    other_existing_str = ", ".join(other_existing_list)
+                    
+                    # --- สร้าง Dropdown ---
+                    selected_symptoms = st.multiselect("บันทึกอาการ (อัปเดตล่าสุด):", SYMPTOM_OPTIONS, default=default_symp, key=f"symp_{idx}")
+                    
+                    other_note = ""
+                    if "อื่นๆ (ให้ระบุ)" in selected_symptoms:
+                        other_note = st.text_input("ระบุอาการอื่นๆ / รายละเอียดเพิ่มเติม:", value=other_existing_str, key=f"other_note_{idx}")
                     
                     next_visit_num = int(float(row['ครั้งที่'])) + 1 if pd.notna(row['ครั้งที่']) and str(row['ครั้งที่']).strip() != "" else 2
                     create_new_visit = st.checkbox(f"✅ บันทึกเป็นประวัติการเข้ารับบริการครั้งใหม่ (ปรับเป็นครั้งที่ {next_visit_num})", value=True, key=f"new_visit_{idx}")
@@ -317,6 +358,12 @@ with tab1:
                             if "การบริการคลินิกคลายเครียดให้การปรึกษา" not in new_service_list:
                                 new_service_list.append("การบริการคลินิกคลายเครียดให้การปรึกษา")
 
+                        # นำอาการทั้งหมดมารวมกันเป็นข้อความเดียว
+                        final_note_parts = [s for s in selected_symptoms if s != "อื่นๆ (ให้ระบุ)"]
+                        if other_note.strip():
+                            final_note_parts.append(other_note.strip())
+                        new_note = ", ".join(final_note_parts)
+
                         if create_new_visit:
                             st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = "บันทึกครั้งใหม่แล้ว"
                             new_row = row.to_dict()
@@ -327,13 +374,13 @@ with tab1:
                                 "ครั้งที่": next_visit_num, 
                                 "ประเภทบริการ": ", ".join(new_service_list), 
                                 "ผลประเมิน": ", ".join(new_result_list), 
-                                "บันทึกติดตาม": new_note, 
+                                "บันทึกอาการ": new_note, 
                                 "สถานะติดตาม": new_status, 
                                 "วันที่นัดติดตาม": new_date_str
                             })
                             st.session_state['patient_data'] = pd.concat([st.session_state['patient_data'], pd.DataFrame([new_row])], ignore_index=True)
                         else:
-                            st.session_state['patient_data'].loc[idx, ['ประเภทบริการ', 'ผลประเมิน', 'บันทึกติดตาม', 'สถานะติดตาม', 'วันที่นัดติดตาม']] = [", ".join(new_service_list), ", ".join(new_result_list), new_note, new_status, new_date_str]
+                            st.session_state['patient_data'].loc[idx, ['ประเภทบริการ', 'ผลประเมิน', 'บันทึกอาการ', 'สถานะติดตาม', 'วันที่นัดติดตาม']] = [", ".join(new_service_list), ", ".join(new_result_list), new_note, new_status, new_date_str]
                         
                         conn.update(spreadsheet=SPREADSHEET_URL, worksheet=0, data=st.session_state['patient_data'])
                         st.success("บันทึกการติดตามเรียบร้อยแล้ว!")
@@ -511,7 +558,6 @@ with tab2:
                         plt.xticks(fontproperties=thai_font, fontsize=10)
                         plt.yticks(fontproperties=thai_font, fontsize=10)
                         
-                        # เติมตัวเลขบนแท่งกราฟ
                         for bar in bars:
                             yval = bar.get_height()
                             if yval > 0:
@@ -522,21 +568,17 @@ with tab2:
 
                     plt.tight_layout()
                     
-                    # บันทึกรูปภาพชั่วคราว
                     chart_path = "temp_chart.png"
                     plt.savefig(chart_path, format='png', bbox_inches='tight')
                     plt.close()
                     
-                    # แปะรูปลง PDF (จัดให้อยู่ตรงกลางหน้า A4 แนวนอน กว้างรวม 297mm)
                     y_pos = pdf.get_y()
                     pdf.image(chart_path, x=(297-150)/2, y=y_pos, w=150)
-                    pdf.set_y(y_pos + 65)  # ขยับบรรทัดลงมา 65mm เพื่อหลบกราฟ
+                    pdf.set_y(y_pos + 65)  
                     
-                    # ลบไฟล์ภาพชั่วคราวทิ้ง
                     if os.path.exists(chart_path):
                         os.remove(chart_path)
                 except Exception as e:
-                    # กรณีวาดกราฟไม่ได้ ให้ข้ามไปพิมพ์ตารางเลย
                     pdf.set_font("Sarabun", size=12)
                     pdf.cell(0, 10, f"(เกิดข้อผิดพลาดในการวาดกราฟ: {e})", ln=True, align="C")
             else:
@@ -547,11 +589,9 @@ with tab2:
             # ==========================================
             pdf.set_font("Sarabun", size=11)
             
-            # ปรับความกว้างคอลัมน์ให้พอดีหน้ากระดาษ A4 แนวนอน (กว้างสุด ~277)
             w_no, w_date, w_name, w_gender, w_age = 10, 22, 45, 12, 12
             w_room, w_visit, w_note, w_next = 18, 15, 113, 30
             
-            # หัวตาราง (เปลี่ยนชื่อ บันทึกติดตาม เป็น บันทึกอาการ)
             pdf.cell(w_no, 10, "ลำดับ", border=1, align="C")
             pdf.cell(w_date, 10, "วันที่", border=1, align="C")
             pdf.cell(w_name, 10, "ชื่อ-สกุล", border=1, align="C")
@@ -587,14 +627,13 @@ with tab2:
                     pdf.cell(w_age, 8, trunc(age_str, 10), border=1, align="C")
                     pdf.cell(w_room, 8, trunc(row.get("ห้อง", ""), 12), border=1, align="C")
                     pdf.cell(w_visit, 8, trunc(visit_str, 10), border=1, align="C")
-                    pdf.cell(w_note, 8, trunc(row.get("บันทึกติดตาม", ""), 65), border=1)
+                    pdf.cell(w_note, 8, trunc(row.get("บันทึกอาการ", ""), 65), border=1)
                     pdf.cell(w_next, 8, trunc(next_date_only, 15), border=1, align="C")
                     pdf.ln()
                 
             return bytes(pdf.output())
 
         st.markdown("### 📥 ดาวน์โหลดรายงาน")
-        # แบ่งเป็น 3 คอลัมน์
         col_btn1, col_btn2, col_btn3 = st.columns(3)
         
         with col_btn1:
