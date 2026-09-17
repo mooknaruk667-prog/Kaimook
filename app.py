@@ -6,6 +6,8 @@ import urllib.request
 from datetime import datetime
 from fpdf import FPDF
 from streamlit_gsheets import GSheetsConnection
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 
 # 1. ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="ระบบบันทึกข้อมูลคลินิกคลายเครียด", layout="wide")
@@ -319,7 +321,6 @@ with tab1:
                             st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = "บันทึกครั้งใหม่แล้ว"
                             new_row = row.to_dict()
                             
-                            # เปลี่ยนให้บันทึกแค่วันที่ (ไม่มีเวลา) สำหรับติดตามด้วย
                             update_formatted_date = record_date_update.strftime("%d/%m/%Y")
                             new_row.update({
                                 "วันที่": update_formatted_date, 
@@ -462,7 +463,7 @@ with tab2:
             
             return bytes(pdf.output())
 
-        # 2. ฟังก์ชันสร้างรายงานตารางข้อมูลดิบ (แก้ไขคอลัมน์ตามคำขอ)
+        # 2. ฟังก์ชันสร้างรายงานตารางข้อมูลดิบ + กราฟสรุป
         def generate_raw_data_pdf():
             pdf = FPDF(orientation="L", unit="mm", format="A4") # แนวนอน
             pdf.add_page()
@@ -474,16 +475,83 @@ with tab2:
                 pdf.set_font("Arial", size=16)
 
             pdf.cell(0, 10, f"รายชื่อผู้รับบริการคลินิกคลายเครียด ประจำเดือน{report_month} พ.ศ. {report_year}", ln=True, align="C")
-            pdf.ln(5)
+            pdf.ln(2)
 
-            # กำหนดขนาดฟอนต์ของตาราง
+            # --- กรองข้อมูลเฉพาะคนที่เลือก "คลินิกคลายเครียด" ---
+            df_clinic = df_report[df_report['ประเภทบริการ'].astype(str).str.contains('คลินิกคลายเครียด', na=False)]
+
+            # ==========================================
+            # วาดกราฟและแปะลง PDF
+            # ==========================================
+            if not df_clinic.empty:
+                try:
+                    plt.figure(figsize=(10, 4))
+                    thai_font = fm.FontProperties(fname=FONT_PATH)
+                    
+                    # 1) กราฟวงกลม สัดส่วนเพศ
+                    plt.subplot(1, 2, 1)
+                    gender_counts = df_clinic['เพศ'].value_counts()
+                    if not gender_counts.empty:
+                        plt.pie(gender_counts, labels=gender_counts.index, autopct='%1.1f%%', 
+                                textprops={'fontproperties': thai_font, 'fontsize': 12}, startangle=90, colors=['#4c72b0', '#dd8452'])
+                        plt.title('สัดส่วนเพศผู้รับบริการ', fontproperties=thai_font, fontsize=14)
+                    else:
+                        plt.text(0.5, 0.5, 'ไม่มีข้อมูลเพศ', ha='center', va='center', fontproperties=thai_font)
+                        plt.axis('off')
+                        
+                    # 2) กราฟแท่ง ช่วงอายุ
+                    plt.subplot(1, 2, 2)
+                    ages = pd.to_numeric(df_clinic['อายุ'], errors='coerce').dropna()
+                    bins = [0, 19, 29, 39, 49, 59, 150]
+                    labels = ['<20', '20-29', '30-39', '40-49', '50-59', '60+']
+                    if not ages.empty:
+                        age_groups = pd.cut(ages, bins=bins, labels=labels).value_counts().reindex(labels, fill_value=0)
+                        bars = plt.bar(age_groups.index.astype(str), age_groups.values, color='#55a868')
+                        plt.title('ช่วงอายุผู้รับบริการ', fontproperties=thai_font, fontsize=14)
+                        plt.xticks(fontproperties=thai_font, fontsize=10)
+                        plt.yticks(fontproperties=thai_font, fontsize=10)
+                        
+                        # เติมตัวเลขบนแท่งกราฟ
+                        for bar in bars:
+                            yval = bar.get_height()
+                            if yval > 0:
+                                plt.text(bar.get_x() + bar.get_width()/2, yval + 0.1, int(yval), ha='center', va='bottom', fontproperties=thai_font)
+                    else:
+                        plt.text(0.5, 0.5, 'ไม่มีข้อมูลอายุ', ha='center', va='center', fontproperties=thai_font)
+                        plt.axis('off')
+
+                    plt.tight_layout()
+                    
+                    # บันทึกรูปภาพชั่วคราว
+                    chart_path = "temp_chart.png"
+                    plt.savefig(chart_path, format='png', bbox_inches='tight')
+                    plt.close()
+                    
+                    # แปะรูปลง PDF (จัดให้อยู่ตรงกลางหน้า A4 แนวนอน กว้างรวม 297mm)
+                    y_pos = pdf.get_y()
+                    pdf.image(chart_path, x=(297-150)/2, y=y_pos, w=150)
+                    pdf.set_y(y_pos + 65)  # ขยับบรรทัดลงมา 65mm เพื่อหลบกราฟ
+                    
+                    # ลบไฟล์ภาพชั่วคราวทิ้ง
+                    if os.path.exists(chart_path):
+                        os.remove(chart_path)
+                except Exception as e:
+                    # กรณีวาดกราฟไม่ได้ ให้ข้ามไปพิมพ์ตารางเลย
+                    pdf.set_font("Sarabun", size=12)
+                    pdf.cell(0, 10, f"(เกิดข้อผิดพลาดในการวาดกราฟ: {e})", ln=True, align="C")
+            else:
+                pdf.ln(5)
+
+            # ==========================================
+            # วาดตารางข้อมูลดิบ
+            # ==========================================
             pdf.set_font("Sarabun", size=11)
             
-            # กำหนดความกว้างคอลัมน์ (รวมกันให้พอดีหน้า A4 แนวนอน ลบขอบแล้ว)
+            # ปรับความกว้างคอลัมน์ให้พอดีหน้ากระดาษ A4 แนวนอน (กว้างสุด ~277)
             w_no, w_date, w_name, w_gender, w_age = 10, 22, 45, 12, 12
             w_room, w_visit, w_note, w_next = 18, 15, 113, 30
             
-            # หัวตาราง (เปลี่ยนชื่อคอลัมน์ บันทึกติดตาม เป็น บันทึกอาการ)
+            # หัวตาราง (เปลี่ยนชื่อ บันทึกติดตาม เป็น บันทึกอาการ)
             pdf.cell(w_no, 10, "ลำดับ", border=1, align="C")
             pdf.cell(w_date, 10, "วันที่", border=1, align="C")
             pdf.cell(w_name, 10, "ชื่อ-สกุล", border=1, align="C")
@@ -495,24 +563,18 @@ with tab2:
             pdf.cell(w_next, 10, "วันที่นัด", border=1, align="C")
             pdf.ln()
 
-            # --- กรองข้อมูลเฉพาะคนที่เลือก "คลินิกคลายเครียด" ---
-            df_clinic = df_report[df_report['ประเภทบริการ'].astype(str).str.contains('คลินิกคลายเครียด', na=False)]
-
             pdf.set_font("Sarabun", size=10)
             
             if df_clinic.empty:
-                # กรณีไม่มีข้อมูลในเดือนนั้น
                 total_width = w_no + w_date + w_name + w_gender + w_age + w_room + w_visit + w_note + w_next
                 pdf.cell(total_width, 10, "ไม่มีข้อมูลผู้รับบริการคลินิกคลายเครียดในเดือนนี้", border=1, align="C")
                 pdf.ln()
             else:
-                # วนลูปข้อมูลดิบที่กรองแล้ว
                 for i, (index, row) in enumerate(df_clinic.iterrows(), start=1):
                     def trunc(t, l):
                         s = str(t).replace('\n', ' ').strip()
                         return s[:l] + '..' if len(s) > l else s
                     
-                    # ล้างข้อความให้สวยงามก่อนลง PDF
                     date_only = str(row.get("วันที่", "")).split(" ")[0]
                     next_date_only = str(row.get("วันที่นัดติดตาม", "")).split(" ")[0]
                     age_str = str(row.get("อายุ", "")).replace(".0", "")
