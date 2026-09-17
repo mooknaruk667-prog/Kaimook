@@ -539,4 +539,4 @@ with tab2:
                 st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF ข้อมูลดิบ: {e}")
                 
     else:
-        st.info(f"ไม่มีข้อมูลการรับบริการในเดือน **{report_month} {report_year}** ครับ"
+        st.info(f"ไม่มีข้อมูลการรับบริการในเดือน **{report_month} {report_year}** ครับ")
