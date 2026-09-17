@@ -146,9 +146,26 @@ with tab1:
                 "รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช", "ส่งต่อไปรับการรักษานอกเรือนจำ",
                 "โรงพยาบาลรับเป็นผู้ป่วยใน (admit)"
             ])
+            
+            # เพิ่มข้อความแจ้งเตือนผู้ใช้ให้ทราบระบบทำงานอัตโนมัติ
+            st.info("💡 **Auto-fill:** หากเลือก **'พบความผิดปกติ'** ระบบจะเพิ่มการตรวจ Telepsychiatry และการวินิจฉัยโรค/ดูแลรักษา ให้อัตโนมัติเมื่อกดบันทึก")
         
         if st.form_submit_button("💾 บันทึกข้อมูลใหม่"):
             if full_name.strip():
+                
+                # ==============================================================
+                # โลจิกเพิ่มข้อมูลอัตโนมัติหากเลือก "พบความผิดปกติ"
+                # ==============================================================
+                if "พบความผิดปกติ" in result:
+                    if "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา" not in result:
+                        result.append("ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา")
+                    if "รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช" not in result:
+                        result.append("รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช")
+                    
+                    if "ตรวจผ่านระบบ Telepsychiatry" not in service_type:
+                        service_type.append("ตรวจผ่านระบบ Telepsychiatry")
+                # ==============================================================
+
                 service_type_str = ", ".join(service_type) if service_type else "ไม่ได้ระบุ"
                 result_str = ", ".join(result) if result else "ไม่ได้ระบุ"
                 
@@ -242,6 +259,8 @@ with tab1:
                     old_res = [r.strip() for r in str(row.get('ผลประเมิน', '')).split(",")]
                     new_result_list = st.multiselect("ผลประเมิน (อัปเดตล่าสุด)", valid_res_options, default=[r for r in old_res if r in valid_res_options], key=f"res_{idx}")
                     
+                    st.caption("💡 ระบบจะเพิ่ม Telepsychiatry และการดูแลรักษาให้อัตโนมัติหากเลือก 'พบความผิดปกติ' เมื่อกดบันทึก")
+                    
                     status_options = ["รอดำเนินการ", "ติดตามแล้ว", "ติดตามต่อ", "ปิดเคส"]
                     current_status = row['สถานะติดตาม'] if pd.notna(row['สถานะติดตาม']) and row['สถานะติดตาม'] != "" else "รอดำเนินการ"
                     new_status = st.selectbox("สถานะการติดตาม", status_options, index=status_options.index(current_status) if current_status in status_options else 0, key=f"status_{idx}")
@@ -262,6 +281,20 @@ with tab1:
                         record_date_update = st.date_input("📅 วันที่รับบริการ (สำหรับการบันทึกประวัติครั้งใหม่)", value=datetime.now(), key=f"new_date_{idx}")
                     
                     if st.button("💾 บันทึกอัปเดต", key=f"save_note_{idx}"):
+                        
+                        # ==============================================================
+                        # โลจิกเพิ่มข้อมูลอัตโนมัติหากเลือก "พบความผิดปกติ" ในการติดตาม
+                        # ==============================================================
+                        if "พบความผิดปกติ" in new_result_list:
+                            if "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา" not in new_result_list:
+                                new_result_list.append("ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา")
+                            if "รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช" not in new_result_list:
+                                new_result_list.append("รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช")
+                            
+                            if "ตรวจผ่านระบบ Telepsychiatry" not in new_service_list:
+                                new_service_list.append("ตรวจผ่านระบบ Telepsychiatry")
+                        # ==============================================================
+
                         if create_new_visit:
                             st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = "บันทึกครั้งใหม่แล้ว"
                             new_row = row.to_dict()
@@ -375,12 +408,10 @@ with tab2:
             else:
                 pdf.set_font("Arial", size=16)
 
-            pdf.cell(0, 10, "แบบรายงานการดำเนินงานคลินิกคลายเครียด", ln=True, align="C")
-            pdf.set_font("Sarabun", size=16)
-            pdf.cell(0, 10, f"เรือนจำจังหวัดบุรีรัมย์ ประจำเดือน {report_month} พ.ศ. {report_year}", ln=True, align="C")
             date_str = report_date.strftime("%d/%m/%Y")
-            pdf.set_font("Sarabun", size=14)
-            pdf.cell(0, 10, f"(ข้อมูล ณ วันที่ {date_str})", ln=True, align="C")
+            pdf.cell(0, 10, f"รายงาน Tele psychiatry วันที่ {date_str}", ln=True, align="C")
+            pdf.set_font("Sarabun", size=16)
+            pdf.cell(0, 10, f"เรือนจำจังหวัดบุรีรัมย์", ln=True, align="C")
             pdf.ln(5)
 
             pdf.set_font("Sarabun", size=14)
@@ -420,7 +451,8 @@ with tab2:
         with col_btn2:
             try:
                 pdf_bytes = generate_pdf()
-                st.download_button("📄 ดาวน์โหลด PDF (พร้อมพิมพ์)", data=pdf_bytes, file_name=f"Report_Sj21_{report_month}.pdf", mime="application/pdf")
+                date_str_file = report_date.strftime("%Y-%m-%d")
+                st.download_button("📄 ดาวน์โหลด PDF (พร้อมพิมพ์)", data=pdf_bytes, file_name=f"Report_Telepsychiatry_{date_str_file}.pdf", mime="application/pdf")
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF: {e}")
                 
