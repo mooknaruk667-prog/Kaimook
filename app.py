@@ -503,9 +503,16 @@ with tab2:
             pdf.set_font("Sarabun", size=14)
             pdf.multi_cell(0, 8, txt=problems if problems.strip() else "- ไม่มี -")
             
-            pdf.ln(20)
-            pdf.cell(0, 10, txt="ลงชื่อ.......................................................", ln=True, align="R")
-            pdf.cell(0, 10, txt="ผู้ให้การปรึกษา/ทีมสุขภาพจิตเรือนจำ", ln=True, align="R")
+            # --- รูปแบบลายเซ็น เสนอลงนาม (ชิดขวา, กึ่งกลางกันเอง) ---
+            pdf.ln(15)
+            pdf.set_font("Sarabun", size=14)
+            pdf.cell(90) # ขยับไปฝั่งขวา
+            pdf.cell(100, 8, txt="เรียนผู้บังคับบัญชาการเรือนจำจังหวัดบุรีรัมย์", ln=True, align="C")
+            pdf.ln(24) # เว้นสามบรรทัด (8*3)
+            pdf.cell(90)
+            pdf.cell(100, 8, txt="นางสาวเดือนนภา เบี้ยชาติไทย", ln=True, align="C")
+            pdf.cell(90)
+            pdf.cell(100, 8, txt="(นักจิตวิทยาปฏิบัติการ)", ln=True, align="C")
             
             return bytes(pdf.output())
 
@@ -652,6 +659,17 @@ with tab2:
             pdf.cell(0, 8, "ปัญหาและอุปสรรค:", ln=True)
             pdf.set_font("Sarabun", size=12)
             pdf.multi_cell(0, 6, txt=problems if problems.strip() else "- ไม่มี -")
+            
+            # --- รูปแบบลายเซ็น เสนอลงนาม (ชิดขวา, กึ่งกลางกันเอง, A4 แนวนอน) ---
+            pdf.ln(15)
+            pdf.set_font("Sarabun", size=14)
+            pdf.cell(177) # ขยับไปฝั่งขวา (หน้ากว้าง 297 ขอบ 10 = 277 ลบ 100 เหลือ 177)
+            pdf.cell(100, 8, txt="เรียนผู้บังคับบัญชาการเรือนจำจังหวัดบุรีรัมย์", ln=True, align="C")
+            pdf.ln(24) # เว้นสามบรรทัด (8*3)
+            pdf.cell(177)
+            pdf.cell(100, 8, txt="นางสาวเดือนนภา เบี้ยชาติไทย", ln=True, align="C")
+            pdf.cell(177)
+            pdf.cell(100, 8, txt="(นักจิตวิทยาปฏิบัติการ)", ln=True, align="C")
                 
             return bytes(pdf.output())
 
