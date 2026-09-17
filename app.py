@@ -145,7 +145,6 @@ with tab1:
             case_type = st.text_input("ฐานความผิด / คดี", value=def_case)
             visit_count = st.number_input("รับบริการครั้งที่", min_value=1, step=1)
             
-            # --- มี "จิตบำบัด" ให้เลือกเหมือนเดิม ---
             service_type = st.multiselect("ประเภทการเข้ารับบริการ (ตาม สจ.21)", [
                 "คัดกรองผู้ต้องขังเข้าใหม่", "ผู้ต้องขังรายเก่าที่ได้รับการคัดกรองซ้ำ",
                 "ให้บริการตรวจรักษาในเรือนจำ", "ตรวจผ่านระบบ Telepsychiatry",
@@ -153,7 +152,6 @@ with tab1:
                 "ฆ่าตัวตายไม่สำเร็จ", "ฆ่าตัวตายสำเร็จ", "อบรมผู้ต้องขังช่วยเหลืองานด้านสุขภาพจิต"
             ])
             
-            # --- มี "ปิดเคส" เป็นแค่ตัวเลือกให้กดเอง ---
             result = st.multiselect("ผลการประเมิน / การดำเนินการ", [
                 "ปกติ", "พบความผิดปกติ", "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา",
                 "รับการประเมินเพื่อวินิจฉัยโรคทางจิตเวช", "ส่งต่อไปรับการรักษานอกเรือนจำ",
@@ -166,8 +164,6 @@ with tab1:
             if full_name.strip():
                 
                 # ==============================================================
-                # โลจิก 1: หากเลือก "พบความผิดปกติ"
-                # ==============================================================
                 if "พบความผิดปกติ" in result:
                     if "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา" not in result:
                         result.append("ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา")
@@ -177,9 +173,6 @@ with tab1:
                     if "ตรวจผ่านระบบ Telepsychiatry" not in service_type:
                         service_type.append("ตรวจผ่านระบบ Telepsychiatry")
                         
-                # ==============================================================
-                # โลจิก 2: หากเลือก "จิตบำบัด"
-                # ==============================================================
                 initial_status = "รอดำเนินการ"
                 if "ปิดเคส" in result:
                     initial_status = "ปิดเคส"
@@ -306,7 +299,6 @@ with tab1:
                     if st.button("💾 บันทึกอัปเดต", key=f"save_note_{idx}"):
                         
                         # ==============================================================
-                        # โลจิกเพิ่มข้อมูลอัตโนมัติหากเลือก "พบความผิดปกติ" ในการติดตาม
                         if "พบความผิดปกติ" in new_result_list:
                             if "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา" not in new_result_list:
                                 new_result_list.append("ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา")
@@ -316,7 +308,6 @@ with tab1:
                             if "ตรวจผ่านระบบ Telepsychiatry" not in new_service_list:
                                 new_service_list.append("ตรวจผ่านระบบ Telepsychiatry")
                                 
-                        # โลจิกเพิ่มข้อมูลอัตโนมัติหากเลือก "จิตบำบัด" ในการติดตาม
                         if "จิตบำบัด" in new_service_list:
                             if "การบริการคลินิกคลายเครียดให้การปรึกษา" not in new_service_list:
                                 new_service_list.append("การบริการคลินิกคลายเครียดให้การปรึกษา")
@@ -436,9 +427,12 @@ with tab2:
                 pdf.set_font("Arial", size=16)
 
             date_str = report_date.strftime("%d/%m/%Y")
-            pdf.cell(0, 10, f"รายงาน Tele psychiatry วันที่ {date_str}", ln=True, align="C")
+            
+            # --- เปลี่ยนหัวกระดาษเป็นคลินิกคลายเครียด ---
+            pdf.cell(0, 10, f"รายงานคลินิกคลายเครียด ประจำเดือน{report_month} พ.ศ. {report_year}", ln=True, align="C")
             pdf.set_font("Sarabun", size=16)
-            pdf.cell(0, 10, f"เรือนจำจังหวัดบุรีรัมย์", ln=True, align="C")
+            pdf.cell(0, 10, f"เรือนจำจังหวัดบุรีรัมย์ (ข้อมูล ณ วันที่ {date_str})", ln=True, align="C")
+                
             pdf.ln(5)
 
             pdf.set_font("Sarabun", size=14)
@@ -473,13 +467,12 @@ with tab2:
             with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
                 summary_df.to_excel(writer, index=False, sheet_name='สรุปรายงาน_สจ21')
                 df_report.to_excel(writer, index=False, sheet_name='ข้อมูลดิบ')
-            st.download_button("📥 ดาวน์โหลด Excel", data=output_excel.getvalue(), file_name=f"Report_Sj21_{report_month}.xlsx")
+            st.download_button("📥 โหลดไฟล์ Excel", data=output_excel.getvalue(), file_name=f"Report_Sj21_{report_month}.xlsx")
             
         with col_btn2:
             try:
                 pdf_bytes = generate_pdf()
-                date_str_file = report_date.strftime("%Y-%m-%d")
-                st.download_button("📄 ดาวน์โหลด PDF (พร้อมพิมพ์)", data=pdf_bytes, file_name=f"Report_Telepsychiatry_{date_str_file}.pdf", mime="application/pdf")
+                st.download_button("📄 โหลด PDF (พร้อมพิมพ์)", data=pdf_bytes, file_name=f"Report_Clinic_{report_month}_{report_year}.pdf", mime="application/pdf")
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF: {e}")
                 
