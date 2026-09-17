@@ -83,18 +83,34 @@ with tab1:
         inmate_df = conn.read(spreadsheet=INMATE_DB_URL, worksheet=0, ttl=10)
         inmate_df = inmate_df.fillna("")
         
-        col1_name = next((col for col in inmate_df.columns if 'คอลัมน์ 1' in str(col)), None)
+        # ค้นหาคอลัมน์แรกที่จะใช้กรอง (ยืดหยุ่นขึ้น)
+        col1_name = next((col for col in inmate_df.columns if 'คอลัมน์ 1' in str(col) or 'คอลัมน์1' in str(col)), None)
+        
+        # ถ้าไม่มีคอลัมน์ชื่อนี้ ให้ใช้คอลัมน์ซ้ายสุด (index 0) ของตารางแทน
+        if not col1_name and len(inmate_df.columns) > 0:
+            col1_name = inmate_df.columns[0]
                 
         if col1_name:
             unique_vals = [v for v in inmate_df[col1_name].unique() if str(v).strip() != ""]
             options_1 = ["-- กรุณาเลือกข้อมูล --"] + unique_vals
             
-            selected_val = st.selectbox(f"1️⃣ เลือกข้อมูลจาก {col1_name} (เช่น วันที่):", options_1)
+            selected_val = st.selectbox(f"1️⃣ เลือกตัวกรองจาก [{col1_name}]:", options_1)
             
             if selected_val != "-- กรุณาเลือกข้อมูล --":
                 filtered_inmates = inmate_df[inmate_df[col1_name].astype(str) == str(selected_val)]
                 
-                name_col = "ชื่อ-สกุล" if "ชื่อ-สกุล" in filtered_inmates.columns else filtered_inmates.columns[0]
+                # --- ปรับปรุงการหาคอลัมน์ "ชื่อ-สกุล" แบบอัตโนมัติ ---
+                name_col = None
+                for col in filtered_inmates.columns:
+                    if "ชื่อ" in str(col):  # หาคอลัมน์ที่มีคำว่า 'ชื่อ'
+                        name_col = col
+                        break
+                
+                # ถ้าหาไม่เจอจริงๆ ให้ใช้คอลัมน์ที่ 2 ถัดจากตัวกรอง (index 1)
+                if not name_col:
+                    name_col = filtered_inmates.columns[1] if len(filtered_inmates.columns) > 1 else filtered_inmates.columns[0]
+                # ------------------------------------------------
+                
                 options_2 = ["-- กรุณาพิมพ์หรือเลือกรายชื่อ --"] + filtered_inmates[name_col].astype(str).tolist()
                 
                 selected_inmate = st.selectbox("2️⃣ ค้นหาและเลือกรายชื่อผู้ต้องขัง:", options_2)
@@ -113,7 +129,7 @@ with tab1:
                     if "คดี" in row.index and pd.notna(row["คดี"]):
                         def_case = str(row["คดี"])
         else:
-            st.info("💡 ขณะนี้ไม่พบคอลัมน์ชื่อ 'คอลัมน์ 1' ในฐานข้อมูลผู้ต้องขัง")
+            st.info("💡 ไม่พบคอลัมน์ข้อมูลในชีตทะเบียนผู้ต้องขัง")
             
     except Exception as e:
         st.error(f"⚠️ ไม่สามารถดึงข้อมูลจากชีตทะเบียนได้ (ตรวจสอบการแชร์ไฟล์ให้ Email Bot หรือลิงก์) Error: {e}")
