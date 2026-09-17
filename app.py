@@ -520,7 +520,7 @@ with tab2:
             else:
                 pdf.set_font("Arial", size=16)
 
-            pdf.cell(0, 10, f"รายชื่อผู้รับบริการคลินิกคลายเครียด ประจำเดือน{report_month} พ.ศ. {report_year}", ln=True, align="C")
+            pdf.cell(0, 10, f"รายงานผู้รับบริการคลินิกคลายเครียด ประจำเดือน{report_month} พ.ศ. {report_year}", ln=True, align="C")
             pdf.ln(2)
 
             df_clinic = df_report[df_report['ประเภทบริการ'].astype(str).str.contains('คลินิกคลายเครียด', na=False)]
@@ -675,7 +675,7 @@ with tab2:
         with col_btn3:
             try:
                 pdf_raw_bytes = generate_raw_data_pdf()
-                st.download_button("📄 โหลด PDF (รายชื่อคลินิกคลายเครียด)", data=pdf_raw_bytes, file_name=f"Report_RawData_Clinic_{report_month}_{report_year}.pdf", mime="application/pdf")
+                st.download_button("📄 โหลด PDF (รายงานคลินิกคลายเครียด)", data=pdf_raw_bytes, file_name=f"Report_RawData_Clinic_{report_month}_{report_year}.pdf", mime="application/pdf")
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF ข้อมูลดิบ: {e}")
                 
