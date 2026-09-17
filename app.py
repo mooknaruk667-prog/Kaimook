@@ -163,7 +163,6 @@ with tab1:
         if st.form_submit_button("💾 บันทึกข้อมูลใหม่"):
             if full_name.strip():
                 
-                # ==============================================================
                 if "พบความผิดปกติ" in result:
                     if "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา" not in result:
                         result.append("ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา")
@@ -180,7 +179,6 @@ with tab1:
                 if "จิตบำบัด" in service_type:
                     if "การบริการคลินิกคลายเครียดให้การปรึกษา" not in service_type:
                         service_type.append("การบริการคลินิกคลายเครียดให้การปรึกษา")
-                # ==============================================================
 
                 service_type_str = ", ".join(service_type) if service_type else "ไม่ได้ระบุ"
                 result_str = ", ".join(result) if result else "ไม่ได้ระบุ"
@@ -298,7 +296,6 @@ with tab1:
                     
                     if st.button("💾 บันทึกอัปเดต", key=f"save_note_{idx}"):
                         
-                        # ==============================================================
                         if "พบความผิดปกติ" in new_result_list:
                             if "ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา" not in new_result_list:
                                 new_result_list.append("ผู้ที่พบปัญหาสุขภาพจิตและได้รับการดูแลรักษา")
@@ -311,7 +308,6 @@ with tab1:
                         if "จิตบำบัด" in new_service_list:
                             if "การบริการคลินิกคลายเครียดให้การปรึกษา" not in new_service_list:
                                 new_service_list.append("การบริการคลินิกคลายเครียดให้การปรึกษา")
-                        # ==============================================================
 
                         if create_new_visit:
                             st.session_state['patient_data'].at[idx, 'สถานะติดตาม'] = "บันทึกครั้งใหม่แล้ว"
@@ -416,6 +412,7 @@ with tab2:
         summary_df = pd.DataFrame(summary_data)
         st.table(summary_df)
         
+        # 1. ฟังก์ชันสร้างรายงานสรุป สจ.21
         def generate_pdf():
             pdf = FPDF()
             pdf.add_page()
@@ -428,7 +425,6 @@ with tab2:
 
             date_str = report_date.strftime("%d/%m/%Y")
             
-            # --- เปลี่ยนหัวกระดาษเป็นคลินิกคลายเครียด ---
             pdf.cell(0, 10, f"รายงานคลินิกคลายเครียด ประจำเดือน{report_month} พ.ศ. {report_year}", ln=True, align="C")
             pdf.set_font("Sarabun", size=16)
             pdf.cell(0, 10, f"เรือนจำจังหวัดบุรีรัมย์ (ข้อมูล ณ วันที่ {date_str})", ln=True, align="C")
@@ -459,8 +455,57 @@ with tab2:
             
             return bytes(pdf.output())
 
+        # 2. ฟังก์ชันสร้างรายงานตารางข้อมูลดิบ
+        def generate_raw_data_pdf():
+            pdf = FPDF(orientation="L", unit="mm", format="A4") # แนวนอน
+            pdf.add_page()
+            
+            if os.path.exists(FONT_PATH):
+                pdf.add_font("Sarabun", style="", fname=FONT_PATH)
+                pdf.set_font("Sarabun", size=18)
+            else:
+                pdf.set_font("Arial", size=16)
+
+            pdf.cell(0, 10, f"รายงานคลินิกคลายเครียด ประจำเดือน{report_month} พ.ศ. {report_year}", ln=True, align="C")
+            pdf.ln(5)
+
+            pdf.set_font("Sarabun", size=12)
+            
+            # กำหนดความกว้างคอลัมน์ รวม ~275 (A4 แนวนอนกว้าง 297 ลบขอบ 10 ซ้ายขวา)
+            w_no, w_date, w_name, w_gender, w_room = 15, 30, 45, 15, 20
+            w_service, w_result = 75, 75
+            
+            # หัวตาราง
+            pdf.cell(w_no, 10, "ลำดับ", border=1, align="C")
+            pdf.cell(w_date, 10, "วันที่", border=1, align="C")
+            pdf.cell(w_name, 10, "ชื่อ-สกุล", border=1, align="C")
+            pdf.cell(w_gender, 10, "เพศ", border=1, align="C")
+            pdf.cell(w_room, 10, "แดน", border=1, align="C")
+            pdf.cell(w_service, 10, "ประเภทบริการ", border=1, align="C")
+            pdf.cell(w_result, 10, "ผลประเมิน", border=1, align="C")
+            pdf.ln()
+
+            # วนลูปข้อมูลดิบ
+            pdf.set_font("Sarabun", size=10)
+            for i, (index, row) in enumerate(df_report.iterrows(), start=1):
+                def trunc(t, l):
+                    s = str(t).replace('\n', ' ').strip()
+                    return s[:l] + '..' if len(s) > l else s
+                
+                pdf.cell(w_no, 8, str(i), border=1, align="C")
+                pdf.cell(w_date, 8, trunc(row.get("วันที่", ""), 16), border=1, align="C")
+                pdf.cell(w_name, 8, trunc(row.get("ชื่อ-สกุล", ""), 30), border=1)
+                pdf.cell(w_gender, 8, trunc(row.get("เพศ", ""), 10), border=1, align="C")
+                pdf.cell(w_room, 8, trunc(row.get("แดน/ห้อง", ""), 15), border=1, align="C")
+                pdf.cell(w_service, 8, trunc(row.get("ประเภทบริการ", ""), 45), border=1)
+                pdf.cell(w_result, 8, trunc(row.get("ผลประเมิน", ""), 45), border=1)
+                pdf.ln()
+                
+            return bytes(pdf.output())
+
         st.markdown("### 📥 ดาวน์โหลดรายงาน")
-        col_btn1, col_btn2 = st.columns(2)
+        # แบ่งเป็น 3 คอลัมน์
+        col_btn1, col_btn2, col_btn3 = st.columns(3)
         
         with col_btn1:
             output_excel = io.BytesIO()
@@ -472,9 +517,16 @@ with tab2:
         with col_btn2:
             try:
                 pdf_bytes = generate_pdf()
-                st.download_button("📄 โหลด PDF (พร้อมพิมพ์)", data=pdf_bytes, file_name=f"Report_Clinic_{report_month}_{report_year}.pdf", mime="application/pdf")
+                st.download_button("📄 โหลด PDF (สรุป สจ.21)", data=pdf_bytes, file_name=f"Report_Clinic_{report_month}_{report_year}.pdf", mime="application/pdf")
             except Exception as e:
-                st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF: {e}")
+                st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF สรุป: {e}")
+                
+        with col_btn3:
+            try:
+                pdf_raw_bytes = generate_raw_data_pdf()
+                st.download_button("📄 โหลด PDF (ข้อมูลดิบรายชื่อ)", data=pdf_raw_bytes, file_name=f"Report_RawData_{report_month}_{report_year}.pdf", mime="application/pdf")
+            except Exception as e:
+                st.error(f"เกิดข้อผิดพลาดในการสร้าง PDF ข้อมูลดิบ: {e}")
                 
     else:
         st.info(f"ไม่มีข้อมูลการรับบริการในเดือน **{report_month} {report_year}** ครับ")
